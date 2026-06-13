@@ -1,12 +1,8 @@
 import { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { GripVertical, X, Clock, Tag, FileText, Send, Plus } from 'lucide-react';
-
-const INITIAL_TASKS = [
-  { id: 't1', content: '기획서 초안 작성하기', quadrant: 'sidebar', timeEstimate: 120, tags: ['work'], notes: '' },
-  { id: 't2', content: '주간 회의 준비', quadrant: 'sidebar', timeEstimate: 30, tags: ['meeting'], notes: '' },
-  { id: 't3', content: '이메일 확인 및 회신', quadrant: 'sidebar', timeEstimate: 15, tags: ['admin'], notes: '' },
-];
+import { GripVertical, X, Clock, Tag, FileText, Send, Plus, LogOut } from 'lucide-react';
+import Auth from './components/Auth';
+import { supabase } from './lib/supabaseClient';
 
 const QUADRANTS = [
   { id: 'q1', title: '중요하고 긴급함 (Do First)', color: 'var(--danger-color)' },
@@ -174,7 +170,8 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
 }
 
 function App() {
-  const [tasks, setTasks] = useState(INITIAL_TASKS);
+  const [session, setSession] = useState(null);
+  const [tasks, setTasks] = useState([]);
   const [newTask, setNewTask] = useState('');
   const [nudgeMessage, setNudgeMessage] = useState(null);
   const [draggingSourceId, setDraggingSourceId] = useState(null);
@@ -193,6 +190,44 @@ function App() {
     setTheme(savedTheme);
     document.documentElement.setAttribute('data-theme', savedTheme);
   }, []);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) fetchTasks(session.user.id);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        fetchTasks(session.user.id);
+      } else {
+        setTasks([]);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const fetchTasks = async (userId) => {
+    const { data, error } = await supabase
+      .from('matrix_tasks')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+      
+    if (error) {
+      console.error('Error fetching tasks', error);
+    } else {
+      const formatted = (data || []).map(t => ({
+        ...t,
+        timeEstimate: t.time_estimate // map db snake_case to component camelCase
+      }));
+      setTasks(formatted);
+    }
+  };
 
   useEffect(() => {
     const quadrantCounts = { q1: 0, q2: 0, q3: 0, q4: 0 };
@@ -254,6 +289,11 @@ function App() {
     newTasks.splice(insertIndex, 0, draggedTask);
     setTasks(newTasks);
 
+    // Update in Supabase
+    supabase.from('matrix_tasks').update({ quadrant: destination.droppableId }).eq('id', draggedTask.id).then(({error}) => {
+      if (error) console.error('Error updating quadrant', error);
+    });
+
     if (destination.droppableId === 'q4' && source.droppableId !== 'q4') {
       setCrushedTaskId(result.draggableId);
       setTimeout(() => setCrushedTaskId(null), 700);
@@ -268,9 +308,9 @@ function App() {
     }
   };
 
-  const handleAddTask = (e) => {
+  const handleAddTask = async (e) => {
     e.preventDefault();
-    if (!newTask.trim()) return;
+    if (!newTask.trim() || !session) return;
     
     let content = newTask.trim();
     if (selectedTime) content += ` [${selectedTime}]`;
@@ -280,25 +320,34 @@ function App() {
 
     const parsed = parseTaskInput(content);
 
-    setTasks([...tasks, { 
-      id: `t${Date.now()}`, 
-      content: parsed.content, 
+    const newTaskObj = {
+      user_id: session.user.id,
+      content: parsed.content,
       quadrant: 'sidebar',
-      timeEstimate: parsed.timeEstimate,
+      time_estimate: parsed.timeEstimate,
       tags: parsed.tags,
       notes: ''
-    }]);
+    };
+
+    const { data, error } = await supabase.from('matrix_tasks').insert(newTaskObj).select().single();
+    
+    if (!error && data) {
+      setTasks([...tasks, { ...data, timeEstimate: data.time_estimate }]);
+    }
+
     setNewTask('');
     setSelectedTime(null);
     setSelectedTags([]);
   };
 
-  const removeTask = (id) => {
+  const removeTask = async (id) => {
     setTasks(tasks.filter(t => t.id !== id));
+    await supabase.from('matrix_tasks').delete().eq('id', id);
   };
 
-  const updateTaskNote = (id, newNote) => {
+  const updateTaskNote = async (id, newNote) => {
     setTasks(tasks.map(t => t.id === id ? { ...t, notes: newNote } : t));
+    await supabase.from('matrix_tasks').update({ notes: newNote }).eq('id', id);
   };
 
   const handleSendToSlate = () => {
@@ -321,12 +370,17 @@ function App() {
     }, 800);
   };
 
+  if (!session) {
+    return <Auth />;
+  }
+
   return (
     <>
       <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        <div style={{ display: 'flex', height: '100vh', padding: '16px', gap: '16px', background: 'var(--bg-color)' }}>
-        {/* Sidebar - Brain Dump */}
-        <div style={{ display: 'flex', flexDirection: 'column', width: '380px', flexShrink: 0 }}>
+        <div style={{ background: 'var(--bg-color)', display: 'flex', justifyContent: 'center', height: '100vh' }}>
+          <div style={{ display: 'flex', width: '100%', maxWidth: '1400px', padding: '24px', gap: '24px' }}>
+          {/* Sidebar - Brain Dump */}
+          <div style={{ display: 'flex', flexDirection: 'column', width: '380px', flexShrink: 0 }}>
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h1 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -335,20 +389,29 @@ function App() {
               </div>
               ZeroMatrix
             </h1>
-            <select 
-              value={theme}
-              onChange={(e) => {setTheme(e.target.value); localStorage.setItem('zeromatrix-theme', e.target.value); document.documentElement.setAttribute('data-theme', e.target.value);}}
-              className="theme-select"
-            >
-              <option value="light">☀️ Light</option>
-              <option value="midnight">🌙 Midnight</option>
-              <option value="ocean">🌊 Ocean</option>
-              <option value="sunset">🌇 Sunset</option>
-              <option value="forest">🌲 Forest</option>
-              <option value="lavender">💜 Lavender</option>
-              <option value="rose">🌹 Rose</option>
-              <option value="coffee">☕ Coffee</option>
-            </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <select 
+                value={theme}
+                onChange={(e) => {setTheme(e.target.value); localStorage.setItem('zeromatrix-theme', e.target.value); document.documentElement.setAttribute('data-theme', e.target.value);}}
+                className="theme-select"
+              >
+                <option value="light">☀️ Light</option>
+                <option value="midnight">🌙 Midnight</option>
+                <option value="ocean">🌊 Ocean</option>
+                <option value="sunset">🌇 Sunset</option>
+                <option value="forest">🌲 Forest</option>
+                <option value="lavender">💜 Lavender</option>
+                <option value="rose">🌹 Rose</option>
+                <option value="coffee">☕ Coffee</option>
+              </select>
+              <button 
+                onClick={() => supabase.auth.signOut()}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
+                title="로그아웃"
+              >
+                <LogOut size={18} />
+              </button>
+            </div>
           </div>
 
           {/* Input Panel */}
@@ -556,6 +619,7 @@ function App() {
                 );
               })}
             </div>
+          </div>
           </div>
         </div>
         </div>
