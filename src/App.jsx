@@ -398,7 +398,7 @@ function App() {
           <div style={{ display: 'flex', flexDirection: 'column', width: '380px', flexShrink: 0 }}>
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h1 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h1 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
               <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'var(--accent-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
                 <span style={{ fontSize: '14px' }}>Z</span>
               </div>
@@ -407,7 +407,8 @@ function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button 
                 onClick={() => openZenMode()}
-                style={{ background: 'var(--accent-light)', border: '1px solid var(--accent-color)', color: 'var(--accent-color)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '16px', fontSize: '0.8rem', fontWeight: 600 }}
+                className="glass-button"
+                style={{ background: 'var(--accent-color)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, whiteSpace: 'nowrap', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
                 title="전역 젠 모드 켜기"
               >
                 <Activity size={14} /> 젠 모드
@@ -416,6 +417,7 @@ function App() {
                 value={theme}
                 onChange={(e) => {setTheme(e.target.value); localStorage.setItem('zeromatrix-theme', e.target.value); document.documentElement.setAttribute('data-theme', e.target.value);}}
                 className="theme-select"
+                style={{ width: 'auto' }}
               >
                 <option value="light">☀️ Light</option>
                 <option value="midnight">🌙 Midnight</option>
@@ -426,13 +428,6 @@ function App() {
                 <option value="rose">🌹 Rose</option>
                 <option value="coffee">☕ Coffee</option>
               </select>
-              <button 
-                onClick={() => supabase.auth.signOut()}
-                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
-                title="로그아웃"
-              >
-                <LogOut size={18} />
-              </button>
             </div>
           </div>
 
@@ -573,8 +568,19 @@ function App() {
             <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
               우선순위를 정리하고, 로켓을 발사하세요.
             </p>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button onClick={handleSendToSlate} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '8px', background: '#1e293b', fontSize: '0.85rem', fontWeight: 600, color: 'white', border: 'none', cursor: 'pointer' }}>
+            <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
+                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success-color)' }} />
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-color)' }}>{session.user.email}</span>
+                <button 
+                  onClick={() => supabase.auth.signOut()}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', marginLeft: '4px', opacity: 0.7 }}
+                  title="로그아웃"
+                >
+                  <LogOut size={14} />
+                </button>
+              </div>
+              <button onClick={handleSendToSlate} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '20px', background: '#1e293b', fontSize: '0.85rem', fontWeight: 600, color: 'white', border: 'none', cursor: 'pointer' }}>
                 <span className={isSending ? 'rocket-animate' : ''} style={{ display: 'flex' }}>🚀</span>
                 <span>{isSending ? '전송중...' : '제로슬레이트로 보내기'}</span>
               </button>
@@ -699,7 +705,7 @@ function App() {
             </button>
           </div>
           <iframe 
-            src={`http://localhost:5500${zenTask ? `?task=${encodeURIComponent(zenTask)}` : ''}`} 
+            src={`${import.meta.env.VITE_ZERONOISE_URL || 'http://localhost:5500'}${zenTask ? `?task=${encodeURIComponent(zenTask)}` : ''}`} 
             style={{ width: '100%', height: '100%', border: 'none' }}
             title="ZeroNoise Zen Mode"
           />
