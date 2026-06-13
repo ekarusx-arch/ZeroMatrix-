@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { GripVertical, X, Clock, Tag, FileText, Send, Plus, LogOut } from 'lucide-react';
+import { GripVertical, X, Clock, Tag, FileText, Send, Plus, LogOut, Activity } from 'lucide-react';
 import Auth from './components/Auth';
 import { supabase } from './lib/supabaseClient';
 
@@ -46,7 +46,7 @@ function formatTime(minutes) {
   return `${m}m`;
 }
 
-function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNote, activeTag, isCrushed }) {
+function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNote, activeTag, isCrushed, openZenMode }) {
   const isDragging = isClone || snapshot.isDragging;
   const [isFlipped, setIsFlipped] = useState(false);
   const [note, setNote] = useState(task.notes || '');
@@ -162,9 +162,16 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
         )}
       </div>
 
-      <button onClick={() => removeTask(task.id)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: 0.5 }}>
-        <X size={16} />
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        {openZenMode && (
+          <button onClick={() => openZenMode(task.content)} style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer', padding: '4px' }} title="이 태스크에 몰입하기 (Zen Mode)">
+            <Activity size={14} />
+          </button>
+        )}
+        <button onClick={() => removeTask(task.id)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: 0.5, padding: '4px' }}>
+          <X size={16} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -182,6 +189,14 @@ function App() {
 
   const [selectedTime, setSelectedTime] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);
+  
+  const [isZenMode, setIsZenMode] = useState(false);
+  const [zenTask, setZenTask] = useState(null);
+
+  const openZenMode = (taskContent = null) => {
+    setZenTask(taskContent);
+    setIsZenMode(true);
+  };
 
   const allTags = Array.from(new Set(tasks.flatMap(t => t.tags || [])));
 
@@ -390,6 +405,13 @@ function App() {
               ZeroMatrix
             </h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button 
+                onClick={() => openZenMode()}
+                style={{ background: 'var(--accent-light)', border: '1px solid var(--accent-color)', color: 'var(--accent-color)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '16px', fontSize: '0.8rem', fontWeight: 600 }}
+                title="전역 젠 모드 켜기"
+              >
+                <Activity size={14} /> 젠 모드
+              </button>
               <select 
                 value={theme}
                 onChange={(e) => {setTheme(e.target.value); localStorage.setItem('zeromatrix-theme', e.target.value); document.documentElement.setAttribute('data-theme', e.target.value);}}
@@ -523,7 +545,7 @@ function App() {
               renderClone={(provided, snapshot, rubric) => {
                 const task = tasks.find(t => t.id === rubric.draggableId);
                 if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
-                return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskNote={updateTaskNote} activeTag={activeTag} />;
+                return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskNote={updateTaskNote} activeTag={activeTag} openZenMode={openZenMode} />;
               }}
             >
               {(provided) => (
@@ -534,7 +556,7 @@ function App() {
                 >
                   {tasks.filter(t => t.quadrant === 'sidebar').map((task, index) => (
                     <Draggable key={task.id} draggableId={task.id} index={index}>
-                      {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskNote={updateTaskNote} activeTag={activeTag} isCrushed={crushedTaskId === task.id} />}
+                      {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskNote={updateTaskNote} activeTag={activeTag} isCrushed={crushedTaskId === task.id} openZenMode={openZenMode} />}
                     </Draggable>
                   ))}
                   {provided.placeholder}
@@ -586,7 +608,7 @@ function App() {
                         renderClone={(provided, snapshot, rubric) => {
                           const task = tasks.find(t => t.id === rubric.draggableId);
                           if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
-                          return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskNote={updateTaskNote} activeTag={activeTag} />;
+                          return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskNote={updateTaskNote} activeTag={activeTag} openZenMode={openZenMode} />;
                         }}
                       >
                         {(provided, snapshot) => (
@@ -607,7 +629,7 @@ function App() {
                           >
                             {tasks.filter(t => t.quadrant === q.id).map((task, index) => (
                               <Draggable key={task.id} draggableId={task.id} index={index}>
-                                {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskNote={updateTaskNote} activeTag={activeTag} isCrushed={crushedTaskId === task.id} />}
+                                {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskNote={updateTaskNote} activeTag={activeTag} isCrushed={crushedTaskId === task.id} openZenMode={openZenMode} />}
                               </Draggable>
                             ))}
                             {provided.placeholder}
@@ -649,6 +671,38 @@ function App() {
               to { transform: translateY(0); opacity: 1; }
             }
           `}</style>
+        </div>
+      )}
+
+      {/* Zen Mode Iframe Overlay */}
+      {isZenMode && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, width: '100vw', height: '100vh',
+          zIndex: 9999,
+          background: '#000',
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+          <div style={{
+            position: 'absolute', top: '16px', right: '24px', zIndex: 10000
+          }}>
+            <button 
+              onClick={() => setIsZenMode(false)}
+              style={{
+                background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff',
+                padding: '8px 16px', borderRadius: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
+                backdropFilter: 'blur(10px)', fontSize: '0.9rem', fontWeight: 600
+              }}
+            >
+              <X size={16} /> 나가기 (Exit Zen Mode)
+            </button>
+          </div>
+          <iframe 
+            src={`http://localhost:5500${zenTask ? `?task=${encodeURIComponent(zenTask)}` : ''}`} 
+            style={{ width: '100%', height: '100%', border: 'none' }}
+            title="ZeroNoise Zen Mode"
+          />
         </div>
       )}
     </>
