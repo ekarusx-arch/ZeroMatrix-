@@ -1,15 +1,76 @@
-import { useState, useEffect } from 'react';
+/* eslint-disable react-hooks/refs -- @hello-pangea/dnd exposes render-prop refs that React 19 lint treats as ref reads. */
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { GripVertical, X, Clock, Tag, FileText, Send, Plus, LogOut, Activity } from 'lucide-react';
+import { ArrowLeft, GripVertical, X, Clock, Tag, FileText, Plus, LogOut, Activity, AlertCircle, Download } from 'lucide-react';
 import Auth from './components/Auth';
 import { supabase } from './lib/supabaseClient';
 
 const QUADRANTS = [
-  { id: 'q1', title: '중요하고 긴급함 (Do First)', color: 'var(--danger-color)' },
-  { id: 'q2', title: '중요하지만 긴급하지 않음 (Schedule)', color: 'var(--success-color)' },
-  { id: 'q3', title: '중요하지 않지만 긴급함 (Delegate)', color: 'var(--accent-color)' },
-  { id: 'q4', title: '중요하지도 긴급하지도 않음 (Eliminate)', color: 'var(--text-secondary)' },
+  { id: 'q1', title: '중요하고 긴급함 (Do First)', mobileTitle: '중요+긴급', color: 'var(--danger-color)' },
+  { id: 'q2', title: '중요하지만 긴급하지 않음 (Schedule)', mobileTitle: '중요', color: 'var(--success-color)' },
+  { id: 'q3', title: '중요하지 않지만 긴급함 (Delegate)', mobileTitle: '긴급', color: 'var(--accent-color)' },
+  { id: 'q4', title: '중요하지도 긴급하지도 않음 (Eliminate)', mobileTitle: '제거', color: 'var(--text-secondary)' },
 ];
+
+const MATRIX_SECTIONS = [
+  { id: 'sidebar', title: '브레인 덤프', mobileTitle: '덤프', color: 'var(--accent-color)' },
+  ...QUADRANTS,
+];
+
+const ZERO_SLATE_URL = 'https://zeroslate.kr';
+const MAX_SLATE_TASKS = 3;
+
+function getSafeReturnUrl(rawUrl) {
+  if (!rawUrl) return ZERO_SLATE_URL;
+
+  try {
+    const parsed = new URL(rawUrl, window.location.origin);
+    const isAllowedProtocol = parsed.protocol === 'https:' || parsed.protocol === 'http:';
+    const isAllowedHost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname.endsWith('zeroslate.kr');
+
+    if (isAllowedProtocol && isAllowedHost) return parsed.toString();
+  } catch (error) {
+    console.warn('ZeroSlate return URL parsing failed:', error);
+  }
+
+  return ZERO_SLATE_URL;
+}
+
+function getInitialReturnUrl() {
+  if (typeof window === 'undefined') return ZERO_SLATE_URL;
+  const params = new URLSearchParams(window.location.search);
+  return getSafeReturnUrl(params.get('returnUrl') || params.get('return'));
+}
+
+function getLocalDateKey() {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function getInitialSuiteDate() {
+  if (typeof window === 'undefined') return getLocalDateKey();
+  const date = new URLSearchParams(window.location.search).get('date');
+  return /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : getLocalDateKey();
+}
+
+function normalizeTaskContent(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function SuiteBackButton({ href }) {
+  return (
+    <a
+      href={href}
+      className="suite-back-button"
+      aria-label="ZeroSlate로 돌아가기"
+    >
+      <ArrowLeft size={15} />
+      ZeroSlate
+    </a>
+  );
+}
 
 function parseTaskInput(rawInput) {
   let content = rawInput;
@@ -27,7 +88,7 @@ function parseTaskInput(rawInput) {
     content = content.replace(timeRegex, '').trim();
   }
 
-  const tagRegex = /#(\w+)/g;
+  const tagRegex = /#([\p{L}\p{N}_-]+)/gu;
   let match;
   while ((match = tagRegex.exec(content)) !== null) {
     tags.push(match[1]);
@@ -72,7 +133,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
         ref={provided.innerRef}
         {...provided.draggableProps}
         {...provided.dragHandleProps}
-        className="glass-button"
+        className="glass-button matrix-task-card matrix-task-card-note"
         style={{
           ...provided.draggableProps.style,
           padding: '12px 16px',
@@ -118,7 +179,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
       ref={provided.innerRef}
       {...provided.draggableProps}
       onDoubleClick={handleDoubleClick}
-      className={`glass-button ${isCrushed ? 'crush-animate' : ''}`}
+      className={`glass-button matrix-task-card ${isCrushed ? 'crush-animate' : ''}`}
       style={{
         ...provided.draggableProps.style,
         display: 'flex',
@@ -137,24 +198,24 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
         transition: [provided.draggableProps.style?.transition, 'opacity 0.2s', 'background 0.2s', 'box-shadow 0.2s'].filter(Boolean).join(', ')
       }}
     >
-      <div {...provided.dragHandleProps} style={{ display: 'flex', alignItems: 'center', color: 'var(--border-color)', cursor: isDragging ? 'grabbing' : 'grab' }}>
+      <div className="matrix-task-grip" {...provided.dragHandleProps} style={{ display: 'flex', alignItems: 'center', color: 'var(--border-color)', cursor: isDragging ? 'grabbing' : 'grab' }}>
         <GripVertical size={16} />
       </div>
 
-      <div style={{display: 'flex', flexDirection: 'column', gap: '4px', flex: 1}}>
-        <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-          <span style={{wordBreak: 'break-all', fontSize: '0.9rem', fontWeight: 500}}>{task.content}</span>
+      <div className="matrix-task-body" style={{display: 'flex', flexDirection: 'column', gap: '4px', flex: 1}}>
+        <div className="matrix-task-title-row" style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
+          <span className="matrix-task-title" style={{wordBreak: 'break-all', fontSize: '0.9rem', fontWeight: 500}}>{task.content}</span>
           {task.notes && <FileText size={12} color="var(--accent-color)" />}
         </div>
         {(task.timeEstimate > 0 || (task.tags && task.tags.length > 0)) && (
-          <div style={{display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap'}}>
+          <div className="matrix-task-meta" style={{display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap'}}>
             {task.timeEstimate > 0 && (
-              <span style={{fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '3px', background: 'var(--bg-color)', color: 'var(--text-secondary)', padding: '2px 8px', borderRadius: '12px'}}>
+              <span className="matrix-task-chip" style={{fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '3px', background: 'var(--bg-color)', color: 'var(--text-secondary)', padding: '2px 8px', borderRadius: '12px'}}>
                 <Clock size={10} /> {formatTime(task.timeEstimate)}
               </span>
             )}
             {task.tags?.map(tag => (
-              <span key={tag} style={{fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '3px', background: 'var(--accent-light)', color: 'var(--accent-color)', padding: '2px 8px', borderRadius: '12px'}}>
+              <span className="matrix-task-chip is-tag" key={tag} style={{fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '3px', background: 'var(--accent-light)', color: 'var(--accent-color)', padding: '2px 8px', borderRadius: '12px'}}>
                 <Tag size={10} /> {tag}
               </span>
             ))}
@@ -162,7 +223,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+      <div className="matrix-task-actions" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
         {openZenMode && (
           <button onClick={() => openZenMode(task.content)} style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer', padding: '4px' }} title="이 태스크에 몰입하기 (Zen Mode)">
             <Activity size={14} />
@@ -180,9 +241,11 @@ function App() {
   const [session, setSession] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [newTask, setNewTask] = useState('');
-  const [nudgeMessage, setNudgeMessage] = useState(null);
   const [draggingSourceId, setDraggingSourceId] = useState(null);
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === 'undefined') return 'light';
+    return localStorage.getItem('zeromatrix-theme') || 'light';
+  });
   const [activeTag, setActiveTag] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [crushedTaskId, setCrushedTaskId] = useState(null);
@@ -192,19 +255,105 @@ function App() {
   
   const [isZenMode, setIsZenMode] = useState(false);
   const [zenTask, setZenTask] = useState(null);
+  const [returnUrl] = useState(getInitialReturnUrl);
+  const [selectedDate] = useState(getInitialSuiteDate);
+  const [mobileSectionId, setMobileSectionId] = useState('sidebar');
+  const [selectedTaskId, setSelectedTaskId] = useState(null);
+  const [isImportingBrainDump, setIsImportingBrainDump] = useState(false);
+  const [importNotice, setImportNotice] = useState(null);
+  const importNoticeTimerRef = useRef(null);
 
   const openZenMode = (taskContent = null) => {
     setZenTask(taskContent);
     setIsZenMode(true);
   };
 
+  const buildSlateImportUrl = (selectedTasks) => {
+    const target = new URL(returnUrl);
+    target.searchParams.set('from', 'matrix');
+    target.searchParams.set('matrixVersion', '1');
+    target.searchParams.set('matrixTasks', JSON.stringify(selectedTasks));
+    return target.toString();
+  };
+
+  const buildNoiseUrl = (taskContent = null) => {
+    const baseUrl = import.meta.env.VITE_ZERONOISE_URL || 'https://noise.zeroslate.kr';
+
+    try {
+      const target = new URL(baseUrl);
+      target.searchParams.set('from', 'matrix');
+      target.searchParams.set('returnUrl', window.location.href);
+      if (taskContent) target.searchParams.set('task', taskContent);
+      return target.toString();
+    } catch {
+      const params = new URLSearchParams({ from: 'matrix', returnUrl: window.location.href });
+      if (taskContent) params.set('task', taskContent);
+      return `${baseUrl}?${params.toString()}`;
+    }
+  };
+
   const allTags = Array.from(new Set(tasks.flatMap(t => t.tags || [])));
+  const selectedTask = tasks.find(t => t.id === selectedTaskId) || null;
+  const mobileSection = MATRIX_SECTIONS.find(section => section.id === mobileSectionId) || MATRIX_SECTIONS[0];
+  const mobileTasks = tasks.filter(t => t.quadrant === mobileSection.id && (!activeTag || (t.tags || []).includes(activeTag)));
+  const dumpCount = tasks.filter(t => t.quadrant === 'sidebar').length;
+  const slateCandidateCount = tasks.filter(t => t.quadrant === 'q1').length;
+  const slateReadyCount = Math.min(slateCandidateCount, MAX_SLATE_TASKS);
+  const nudgeMessage = useMemo(() => {
+    const quadrantCounts = { q1: 0, q2: 0, q3: 0, q4: 0 };
+    tasks.forEach(t => {
+      if (t.quadrant?.startsWith('q')) {
+        quadrantCounts[t.quadrant]++;
+      }
+    });
+
+    return Object.values(quadrantCounts).some(count => count >= 5)
+      ? '생각이 너무 복잡해요! 🧠 조금 미뤄보는 건 어떨까요?'
+      : null;
+  }, [tasks]);
+
+  const clearImportNotice = useCallback(() => {
+    if (importNoticeTimerRef.current) {
+      window.clearTimeout(importNoticeTimerRef.current);
+      importNoticeTimerRef.current = null;
+    }
+    setImportNotice(null);
+  }, []);
+
+  const showImportNotice = useCallback((notice) => {
+    if (importNoticeTimerRef.current) {
+      window.clearTimeout(importNoticeTimerRef.current);
+    }
+
+    setImportNotice(notice);
+    importNoticeTimerRef.current = window.setTimeout(() => {
+      setImportNotice(null);
+      importNoticeTimerRef.current = null;
+    }, notice.type === 'success' ? 3800 : 4800);
+  }, []);
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem('zeromatrix-theme') || 'light';
-    setTheme(savedTheme);
-    document.documentElement.setAttribute('data-theme', savedTheme);
-  }, []);
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  const fetchTasks = useCallback(async (userId) => {
+    const { data, error } = await supabase
+      .from('matrix_tasks')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+      
+    if (error) {
+      console.error('Error fetching tasks', error);
+      showImportNotice({ type: 'error', message: 'Matrix 작업을 불러오지 못했습니다.' });
+    } else {
+      const formatted = (data || []).map(t => ({
+        ...t,
+        timeEstimate: t.time_estimate
+      }));
+      setTasks(formatted);
+    }
+  }, [showImportNotice]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -224,41 +373,15 @@ function App() {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
-
-  const fetchTasks = async (userId) => {
-    const { data, error } = await supabase
-      .from('matrix_tasks')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: true });
-      
-    if (error) {
-      console.error('Error fetching tasks', error);
-    } else {
-      const formatted = (data || []).map(t => ({
-        ...t,
-        timeEstimate: t.time_estimate // map db snake_case to component camelCase
-      }));
-      setTasks(formatted);
-    }
-  };
+  }, [fetchTasks]);
 
   useEffect(() => {
-    const quadrantCounts = { q1: 0, q2: 0, q3: 0, q4: 0 };
-    tasks.forEach(t => {
-      if (t.quadrant.startsWith('q')) {
-        quadrantCounts[t.quadrant]++;
+    return () => {
+      if (importNoticeTimerRef.current) {
+        window.clearTimeout(importNoticeTimerRef.current);
       }
-    });
-
-    const overloaded = Object.values(quadrantCounts).some(count => count >= 5);
-    if (overloaded) {
-      setNudgeMessage('생각이 너무 복잡해요! 🧠 조금 미뤄보는 건 어떨까요?');
-    } else {
-      setNudgeMessage(null);
-    }
-  }, [tasks]);
+    };
+  }, []);
 
   const onDragStart = (result) => {
     setDraggingSourceId(result.source.droppableId);
@@ -274,6 +397,7 @@ function App() {
       return;
     }
 
+    const previousTasks = tasks;
     const newTasks = Array.from(tasks);
     const globalIndex = newTasks.findIndex(t => t.id === result.draggableId);
     
@@ -306,7 +430,11 @@ function App() {
 
     // Update in Supabase
     supabase.from('matrix_tasks').update({ quadrant: destination.droppableId }).eq('id', draggedTask.id).then(({error}) => {
-      if (error) console.error('Error updating quadrant', error);
+      if (error) {
+        console.error('Error updating quadrant', error);
+        setTasks(previousTasks);
+        showImportNotice({ type: 'error', message: '이동 내용을 저장하지 못해 이전 상태로 되돌렸습니다.' });
+      }
     });
 
     if (destination.droppableId === 'q4' && source.droppableId !== 'q4') {
@@ -347,64 +475,207 @@ function App() {
     const { data, error } = await supabase.from('matrix_tasks').insert(newTaskObj).select().single();
     
     if (!error && data) {
-      setTasks([...tasks, { ...data, timeEstimate: data.time_estimate }]);
+      setTasks(currentTasks => [...currentTasks, { ...data, timeEstimate: data.time_estimate }]);
+      setNewTask('');
+      setSelectedTime(null);
+      setSelectedTags([]);
+    } else {
+      console.error('Error adding task', error);
+      showImportNotice({ type: 'error', message: '새 작업을 저장하지 못했습니다.' });
     }
-
-    setNewTask('');
-    setSelectedTime(null);
-    setSelectedTags([]);
   };
 
   const removeTask = async (id) => {
+    const previousTasks = tasks;
+    setSelectedTaskId(current => current === id ? null : current);
     setTasks(tasks.filter(t => t.id !== id));
-    await supabase.from('matrix_tasks').delete().eq('id', id);
+    const { error } = await supabase.from('matrix_tasks').delete().eq('id', id);
+    if (error) {
+      console.error('Error deleting task', error);
+      setTasks(previousTasks);
+      showImportNotice({ type: 'error', message: '작업을 삭제하지 못해 복구했습니다.' });
+    }
   };
 
   const updateTaskNote = async (id, newNote) => {
+    const previousTasks = tasks;
     setTasks(tasks.map(t => t.id === id ? { ...t, notes: newNote } : t));
-    await supabase.from('matrix_tasks').update({ notes: newNote }).eq('id', id);
+    const { error } = await supabase.from('matrix_tasks').update({ notes: newNote }).eq('id', id);
+    if (error) {
+      console.error('Error updating note', error);
+      setTasks(previousTasks);
+      showImportNotice({ type: 'error', message: '메모를 저장하지 못해 이전 내용으로 되돌렸습니다.' });
+    }
+  };
+
+  const handleImportBrainDump = async () => {
+    if (!session?.user?.id || isImportingBrainDump) return;
+
+    setIsImportingBrainDump(true);
+    clearImportNotice();
+
+    const { data, error } = await supabase
+      .from('brain_dumps')
+      .select('id,content,is_completed,created_at,order_index,date')
+      .eq('user_id', session.user.id)
+      .eq('date', selectedDate)
+      .eq('is_completed', false)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('ZeroSlate brain dump import failed:', error);
+      showImportNotice({ type: 'error', message: 'ZeroSlate 브레인 덤프를 불러오지 못했습니다.' });
+      setIsImportingBrainDump(false);
+      return;
+    }
+
+    const existingContents = new Set(tasks.map(t => normalizeTaskContent(t.content)));
+    const rows = [...(data || [])].sort((a, b) => {
+      const aOrder = typeof a.order_index === 'number' ? a.order_index : Number.MAX_SAFE_INTEGER;
+      const bOrder = typeof b.order_index === 'number' ? b.order_index : Number.MAX_SAFE_INTEGER;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return String(a.created_at || '').localeCompare(String(b.created_at || ''));
+    });
+
+    const inserts = [];
+    rows.forEach(row => {
+      const parsed = parseTaskInput(row.content || '');
+      const key = normalizeTaskContent(parsed.content);
+      if (!key || existingContents.has(key)) return;
+      existingContents.add(key);
+      inserts.push({
+        user_id: session.user.id,
+        content: parsed.content,
+        quadrant: 'sidebar',
+        time_estimate: parsed.timeEstimate,
+        tags: parsed.tags,
+        notes: ''
+      });
+    });
+
+    if (inserts.length === 0) {
+      showImportNotice({ type: 'info', message: '가져올 새 브레인 덤프가 없습니다.' });
+      setIsImportingBrainDump(false);
+      return;
+    }
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('matrix_tasks')
+      .insert(inserts)
+      .select();
+
+    if (insertError) {
+      console.error('Matrix task import insert failed:', insertError);
+      showImportNotice({ type: 'error', message: 'Matrix 덤프 섹션에 추가하지 못했습니다.' });
+      setIsImportingBrainDump(false);
+      return;
+    }
+
+    const formatted = (inserted || []).map(t => ({ ...t, timeEstimate: t.time_estimate }));
+    setTasks(currentTasks => [...currentTasks, ...formatted]);
+    setMobileSectionId('sidebar');
+    showImportNotice({ type: 'success', message: `ZeroSlate 브레인 덤프 ${formatted.length}개를 가져왔습니다.` });
+    setIsImportingBrainDump(false);
+  };
+
+  const moveTaskToSection = async (taskId, targetSectionId) => {
+    const targetTask = tasks.find(t => t.id === taskId);
+    if (!targetTask || targetTask.quadrant === targetSectionId) return;
+
+    const previousSectionId = targetTask.quadrant;
+    setTasks(currentTasks => currentTasks.map(t => t.id === taskId ? { ...t, quadrant: targetSectionId } : t));
+    setSelectedTaskId(taskId);
+    setMobileSectionId(targetSectionId);
+
+    const { error } = await supabase
+      .from('matrix_tasks')
+      .update({ quadrant: targetSectionId })
+      .eq('id', taskId);
+
+    if (error) {
+      console.error('Error updating quadrant', error);
+      setTasks(currentTasks => currentTasks.map(t => t.id === taskId ? { ...t, quadrant: previousSectionId } : t));
+      setMobileSectionId(previousSectionId);
+      showImportNotice({ type: 'error', message: '이동 내용을 저장하지 못해 이전 섹션으로 되돌렸습니다.' });
+      return;
+    }
+
+    if (targetSectionId === 'q4' && previousSectionId !== 'q4') {
+      setCrushedTaskId(taskId);
+      setTimeout(() => setCrushedTaskId(null), 700);
+    }
   };
 
   const handleSendToSlate = () => {
-    const todayTasks = tasks.filter(t => t.quadrant === 'q1').map(t => t.content);
-    if (todayTasks.length === 0) {
+    const slateCandidates = tasks.filter(t => t.quadrant === 'q1');
+    const todayTasks = slateCandidates
+      .slice(0, MAX_SLATE_TASKS)
+      .map(t => ({
+        id: t.id,
+        content: t.content,
+        quadrant: t.quadrant,
+        timeEstimate: t.timeEstimate || t.time_estimate || 0,
+        tags: t.tags || [],
+        notes: t.notes || ''
+      }));
+
+    if (slateCandidates.length === 0) {
       alert('오늘 할 일(중요+긴급)이 없습니다!');
       return;
     }
 
     setIsSending(true);
+    if (slateCandidates.length > MAX_SLATE_TASKS) {
+      showImportNotice({
+        type: 'info',
+        message: `ZeroSlate Top 3 제한으로 상위 ${MAX_SLATE_TASKS}개만 보냅니다.`
+      });
+    }
 
-    const textToCopy = todayTasks.map(t => `- [ ] ${t}`).join('\n');
+    const textToCopy = todayTasks.map(t => `- [ ] ${t.content}`).join('\n');
     localStorage.setItem('zeroslate_shared_tasks', JSON.stringify(todayTasks));
     
     setTimeout(() => {
-      navigator.clipboard.writeText(textToCopy).then(() => {
-        alert(`🚀 제로슬레이트로 연동 성공!\n\n${textToCopy}`);
-        setIsSending(false);
-      });
-    }, 800);
+      navigator.clipboard?.writeText(textToCopy).catch(() => {});
+      window.location.assign(buildSlateImportUrl(todayTasks));
+    }, slateCandidates.length > MAX_SLATE_TASKS ? 1200 : 800);
   };
 
   if (!session) {
-    return <Auth />;
+    return (
+      <>
+        <SuiteBackButton href={returnUrl} />
+        <Auth />
+      </>
+    );
   }
 
   return (
     <>
+      <SuiteBackButton href={returnUrl} />
       <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        <div style={{ background: 'var(--bg-color)', display: 'flex', justifyContent: 'center', height: '100vh' }}>
-          <div style={{ display: 'flex', width: '100%', maxWidth: '1400px', padding: '24px', gap: '24px' }}>
+        <div className="matrix-shell" style={{ background: 'var(--bg-color)', display: 'flex', justifyContent: 'center', height: '100vh' }}>
+          <div className="matrix-workspace" style={{ display: 'flex', width: '100%', maxWidth: '1400px', padding: '24px', gap: '24px' }}>
           {/* Sidebar - Brain Dump */}
-          <div style={{ display: 'flex', flexDirection: 'column', width: '380px', flexShrink: 0 }}>
+          <div className="matrix-sidebar" style={{ display: 'flex', flexDirection: 'column', width: '380px', flexShrink: 0 }}>
           {/* Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div className="matrix-app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h1 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
               <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'var(--accent-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
                 <span style={{ fontSize: '14px' }}>Z</span>
               </div>
               ZeroMatrix
             </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="matrix-header-actions matrix-mobile-tools" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={handleImportBrainDump}
+                disabled={isImportingBrainDump}
+                className="glass-button matrix-import-button"
+                title={`${selectedDate} ZeroSlate 브레인 덤프 가져오기`}
+              >
+                <Download size={14} /> {isImportingBrainDump ? '가져오는 중' : 'Slate'}
+              </button>
               <button 
                 onClick={() => openZenMode()}
                 className="glass-button"
@@ -432,12 +703,12 @@ function App() {
           </div>
 
           {/* Input Panel */}
-          <div className="glass-panel" style={{ padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column' }}>
+          <div className="glass-panel matrix-input-panel" style={{ padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column' }}>
             <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-color)' }}>
               <span style={{ color: 'var(--accent-color)' }}>⚡️</span> Brain Dump
             </h2>
             
-            <form onSubmit={handleAddTask} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+            <form className="matrix-task-form" onSubmit={handleAddTask} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
               <input 
                 type="text" 
                 className="glass-input" 
@@ -498,6 +769,12 @@ function App() {
                 </div>
               )}
             </div>
+
+            {importNotice && (
+              <div className={`matrix-import-notice is-${importNotice.type}`}>
+                {importNotice.message}
+              </div>
+            )}
           </div>
 
           {/* Tags Filter Row */}
@@ -533,8 +810,108 @@ function App() {
             </div>
           )}
 
+          <div className="mobile-matrix-flow">
+            <div className="mobile-section-tabs" role="tablist" aria-label="ZeroMatrix sections">
+              {MATRIX_SECTIONS.map(section => {
+                const count = tasks.filter(t => t.quadrant === section.id).length;
+                const isActive = mobileSection.id === section.id;
+
+                return (
+                  <button
+                    key={section.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    className={`mobile-section-tab ${isActive ? 'is-active' : ''}`}
+                    style={{ '--section-color': section.color }}
+                    onClick={() => setMobileSectionId(section.id)}
+                  >
+                    <span>{section.mobileTitle}</span>
+                    <strong>{count}</strong>
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedTask && (
+              <div className="mobile-selected-panel">
+                <div className="mobile-selected-copy">
+                  <span>선택됨</span>
+                  <strong>{selectedTask.content}</strong>
+                </div>
+                <div className="mobile-target-grid">
+                  {MATRIX_SECTIONS.map(section => (
+                    <button
+                      key={section.id}
+                      type="button"
+                      className="mobile-target-button"
+                      style={{ '--section-color': section.color }}
+                      disabled={selectedTask.quadrant === section.id}
+                      onClick={() => moveTaskToSection(selectedTask.id, section.id)}
+                    >
+                      {section.mobileTitle}
+                    </button>
+                  ))}
+                </div>
+                <button type="button" className="mobile-clear-selection" onClick={() => setSelectedTaskId(null)}>
+                  선택 해제
+                </button>
+              </div>
+            )}
+
+            <section className="mobile-section-panel" style={{ '--section-color': mobileSection.color }}>
+              <div className="mobile-section-heading">
+                <div>
+                  <p>{mobileSection.mobileTitle}</p>
+                  <h2>{mobileSection.title}</h2>
+                </div>
+                <span>{mobileTasks.length}</span>
+              </div>
+
+              <div className="mobile-task-list">
+                {mobileTasks.length === 0 ? (
+                  <div className="mobile-empty-state">비어 있음</div>
+                ) : (
+                  mobileTasks.map(task => {
+                    const isSelected = selectedTaskId === task.id;
+                    const taskMinutes = task.timeEstimate || task.time_estimate || 0;
+
+                    return (
+                      <div key={task.id} className={`mobile-task-card ${isSelected ? 'is-selected' : ''} ${crushedTaskId === task.id ? 'crush-animate' : ''}`}>
+                        <button
+                          type="button"
+                          className="mobile-task-select"
+                          onClick={() => setSelectedTaskId(isSelected ? null : task.id)}
+                        >
+                          <span className="mobile-task-title">
+                            {task.content}
+                            {task.notes && <FileText size={12} />}
+                          </span>
+                          {(taskMinutes > 0 || (task.tags && task.tags.length > 0)) && (
+                            <span className="mobile-task-meta">
+                              {taskMinutes > 0 && <span><Clock size={10} /> {formatTime(taskMinutes)}</span>}
+                              {task.tags?.map(tag => <span key={tag}><Tag size={10} /> {tag}</span>)}
+                            </span>
+                          )}
+                        </button>
+                        <div className="mobile-task-actions">
+                          <button type="button" onClick={() => openZenMode(task.content)}>
+                            <Activity size={13} /> 몰입
+                          </button>
+                          <button type="button" onClick={() => removeTask(task.id)}>
+                            <X size={13} /> 삭제
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          </div>
+
           {/* Droppable Sidebar List */}
-          <div className="glass-panel" style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
+          <div className="glass-panel matrix-sidebar-list" style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
             <Droppable 
               droppableId="sidebar"
               renderClone={(provided, snapshot, rubric) => {
@@ -562,17 +939,19 @@ function App() {
         </div>
 
         {/* Main Content - Matrix */}
-        <div style={{ flex: 1, padding: '0', display: 'flex', flexDirection: 'column' }}>
+        <div className="matrix-main" style={{ flex: 1, padding: '0', display: 'flex', flexDirection: 'column' }}>
           {/* Header CTA */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', height: '28px' }}>
-            <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-              우선순위를 정리하고, 로켓을 발사하세요.
+          <div className="matrix-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', height: '28px' }}>
+            <p className="matrix-toolbar-summary" style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+              <span>우선순위 정리</span>
+              <strong>덤프 {dumpCount} · 전송 {slateReadyCount}</strong>
             </p>
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success-color)' }} />
-                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-color)' }}>{session.user.email}</span>
+            <div className="matrix-toolbar-cluster" style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+              <div className="matrix-account-pill" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
+                <div className="matrix-account-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success-color)' }} />
+                <span className="matrix-account-email" style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-color)' }}>{session.user.email}</span>
                 <button 
+                  className="matrix-logout-button"
                   onClick={() => supabase.auth.signOut()}
                   style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', marginLeft: '4px', opacity: 0.7 }}
                   title="로그아웃"
@@ -580,7 +959,47 @@ function App() {
                   <LogOut size={14} />
                 </button>
               </div>
-              <button onClick={handleSendToSlate} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '20px', background: '#1e293b', fontSize: '0.85rem', fontWeight: 600, color: 'white', border: 'none', cursor: 'pointer' }}>
+              <div className="matrix-toolbar-tools">
+                <button
+                  type="button"
+                  onClick={handleImportBrainDump}
+                  disabled={isImportingBrainDump}
+                  className="glass-button matrix-import-button"
+                  title={`${selectedDate} ZeroSlate 브레인 덤프 가져오기`}
+                >
+                  <Download size={14} />
+                  <span>{isImportingBrainDump ? '가져오는 중' : 'Slate 덤프'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openZenMode()}
+                  className="glass-button matrix-zen-button"
+                  title="전역 젠 모드 켜기"
+                >
+                  <Activity size={14} />
+                  <span>젠 모드</span>
+                </button>
+                <select
+                  value={theme}
+                  onChange={(e) => {
+                    setTheme(e.target.value);
+                    localStorage.setItem('zeromatrix-theme', e.target.value);
+                    document.documentElement.setAttribute('data-theme', e.target.value);
+                  }}
+                  className="theme-select matrix-theme-select"
+                  title="배경 테마"
+                >
+                  <option value="light">Light</option>
+                  <option value="midnight">Midnight</option>
+                  <option value="ocean">Ocean</option>
+                  <option value="sunset">Sunset</option>
+                  <option value="forest">Forest</option>
+                  <option value="lavender">Lavender</option>
+                  <option value="rose">Rose</option>
+                  <option value="coffee">Coffee</option>
+                </select>
+              </div>
+              <button type="button" className="matrix-send-button" onClick={handleSendToSlate}>
                 <span className={isSending ? 'rocket-animate' : ''} style={{ display: 'flex' }}>🚀</span>
                 <span>{isSending ? '전송중...' : '제로슬레이트로 보내기'}</span>
               </button>
@@ -588,8 +1007,8 @@ function App() {
           </div>
 
           {/* Matrix Grid */}
-          <div className="glass-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr' }}>
+          <div className="glass-panel matrix-board" style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+            <div className="matrix-quadrants" style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr' }}>
               {QUADRANTS.map((q, idx) => {
                 const qTasks = tasks.filter(t => t.quadrant === q.id);
                 const totalMinutes = qTasks.reduce((sum, t) => sum + (t.timeEstimate || 0), 0);
@@ -598,9 +1017,9 @@ function App() {
                 const isBottom = idx >= 2;
 
                 return (
-                  <div key={q.id} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', zIndex: draggingSourceId === q.id ? 100 : 1 }}>
-                    <div style={{ padding: '16px', flex: 1, display: 'flex', flexDirection: 'column', borderRight: isRight ? 'none' : '1px solid var(--border-color)', borderBottom: isBottom ? 'none' : '1px solid var(--border-color)' }}>
-                      <h3 style={{ margin: '0 0 12px 0', fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div key={q.id} className="matrix-quadrant" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', zIndex: draggingSourceId === q.id ? 100 : 1 }}>
+                    <div className="matrix-quadrant-inner" style={{ padding: '16px', flex: 1, display: 'flex', flexDirection: 'column', borderRight: isRight ? 'none' : '1px solid var(--border-color)', borderBottom: isBottom ? 'none' : '1px solid var(--border-color)' }}>
+                      <h3 className="matrix-quadrant-title" style={{ margin: '0 0 12px 0', fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: q.color }} />
                         {q.title}
                         {totalMinutes > 0 && (
@@ -705,7 +1124,7 @@ function App() {
             </button>
           </div>
           <iframe 
-            src={`${import.meta.env.VITE_ZERONOISE_URL || 'http://localhost:5500'}${zenTask ? `?task=${encodeURIComponent(zenTask)}` : ''}`} 
+            src={buildNoiseUrl(zenTask)}
             style={{ width: '100%', height: '100%', border: 'none' }}
             title="ZeroNoise Zen Mode"
           />
