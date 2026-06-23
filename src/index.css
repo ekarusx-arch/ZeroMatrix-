@@ -309,8 +309,7 @@ body {
 }
 
 .matrix-toolbar-tools .glass-button,
-.matrix-import-button,
-.matrix-zen-button {
+.matrix-import-button {
   min-height: 34px;
   display: inline-flex;
   align-items: center;
@@ -328,8 +327,7 @@ body {
 }
 
 .matrix-toolbar-tools .glass-button:hover,
-.matrix-import-button:hover,
-.matrix-zen-button:hover {
+.matrix-import-button:hover {
   background: var(--card-bg) !important;
   border-color: color-mix(in srgb, var(--accent-color) 24%, var(--border-color)) !important;
 }
