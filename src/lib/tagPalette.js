@@ -17,7 +17,7 @@ export function normalizeTagPalette(rawPalette) {
   if (!Array.isArray(rawPalette)) return [];
 
   const seen = new Set();
-  return rawPalette.reduce((palette, item, index) => {
+  return rawPalette.reduce((palette, item) => {
     const tag = normalizeTagName(item?.tag);
     if (!tag || seen.has(tag)) return palette;
     seen.add(tag);
@@ -25,7 +25,7 @@ export function normalizeTagPalette(rawPalette) {
       tag,
       color: /^#[0-9a-f]{6}$/i.test(item?.color || '')
         ? item.color
-        : TAG_COLOR_OPTIONS[index % TAG_COLOR_OPTIONS.length],
+        : TAG_COLOR_OPTIONS[palette.length % TAG_COLOR_OPTIONS.length],
     });
     return palette;
   }, []);

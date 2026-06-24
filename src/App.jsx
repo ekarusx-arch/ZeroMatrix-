@@ -8,6 +8,7 @@ import TimeBudget from './components/TimeBudget';
 import { supabase } from './lib/supabaseClient';
 import { isMatrixPreview, previewSession, previewTagPalette, previewTasks } from './lib/devPreview';
 import { getTagColor, mergeTagPalette, normalizeTagPalette, toSlateTagPalette } from './lib/tagPalette';
+import { getNextTimeEstimate } from './lib/timeBudget';
 
 const QUADRANTS = [
   { id: 'q1', title: '중요하고 긴급함 (Do First)', mobileTitle: '중요+긴급', color: 'var(--danger-color)' },
@@ -265,6 +266,9 @@ function App() {
   const [selectedTime, setSelectedTime] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);
   const [tagPalette, setTagPalette] = useState(() => isMatrixPreview ? previewTagPalette : []);
+  const tagPaletteRef = useRef(tagPalette);
+  const syncedTagPaletteRef = useRef(tagPalette);
+  const tagSyncQueueRef = useRef(Promise.resolve());
   const [dailyCapacityMinutes, setDailyCapacityMinutes] = useState(() => {
     if (typeof window === 'undefined') return 480;
     const saved = Number(localStorage.getItem('zeromatrix-daily-capacity'));
@@ -347,6 +351,10 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  useEffect(() => {
+    tagPaletteRef.current = tagPalette;
+  }, [tagPalette]);
+
   const fetchTasks = useCallback(async (userId) => {
     const { data, error } = await supabase
       .from('matrix_tasks')
@@ -378,7 +386,10 @@ function App() {
       return;
     }
 
-    setTagPalette(normalizeTagPalette(data?.custom_tags));
+    const nextPalette = normalizeTagPalette(data?.custom_tags);
+    tagPaletteRef.current = nextPalette;
+    syncedTagPaletteRef.current = nextPalette;
+    setTagPalette(nextPalette);
   }, []);
 
   useEffect(() => {
@@ -478,34 +489,48 @@ function App() {
   const persistTagPalette = async (nextPalette) => {
     if (!session?.user?.id) return false;
     const normalized = normalizeTagPalette(nextPalette);
-    const previous = tagPalette;
+    tagPaletteRef.current = normalized;
     setTagPalette(normalized);
 
     if (isMatrixPreview) return true;
 
-    const { error } = await supabase.from('user_settings').upsert({
-      user_id: session.user.id,
-      custom_tags: toSlateTagPalette(normalized),
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id' });
+    const syncOperation = tagSyncQueueRef.current.then(() => (
+      supabase.from('user_settings').upsert({
+        user_id: session.user.id,
+        custom_tags: toSlateTagPalette(normalized),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' })
+    ));
+    tagSyncQueueRef.current = syncOperation.catch(() => {});
+    let error;
+    try {
+      ({ error } = await syncOperation);
+    } catch (syncError) {
+      error = syncError;
+    }
 
     if (error) {
       console.error('ZeroSlate tag palette sync failed', error);
-      setTagPalette(previous);
+      if (tagPaletteRef.current === normalized) {
+        tagPaletteRef.current = syncedTagPaletteRef.current;
+        setTagPalette(syncedTagPaletteRef.current);
+      }
       showImportNotice({ type: 'error', message: '태그 색상을 ZeroSlate와 동기화하지 못했습니다.' });
       return false;
     }
+    syncedTagPaletteRef.current = normalized;
     return true;
   };
 
   const ensureTagsInPalette = async (tags) => {
-    const nextPalette = mergeTagPalette(tagPalette, tags);
-    if (nextPalette.length === tagPalette.length) return;
+    const currentPalette = tagPaletteRef.current;
+    const nextPalette = mergeTagPalette(currentPalette, tags);
+    if (nextPalette.length === currentPalette.length) return;
     await persistTagPalette(nextPalette);
   };
 
   const handleTagColorChange = async (tag, color) => {
-    const nextPalette = mergeTagPalette(tagPalette, [tag]).map((item) => (
+    const nextPalette = mergeTagPalette(tagPaletteRef.current, [tag]).map((item) => (
       item.tag === tag ? { ...item, color } : item
     ));
     const synced = await persistTagPalette(nextPalette);
@@ -518,12 +543,10 @@ function App() {
   };
 
   const updateTaskTime = async (id) => {
-    const steps = [0, 15, 30, 60, 120];
     const target = tasks.find((task) => task.id === id);
     if (!target) return;
     const current = target.timeEstimate || target.time_estimate || 0;
-    const currentIndex = steps.indexOf(current);
-    const next = steps[(currentIndex + 1) % steps.length];
+    const next = getNextTimeEstimate(current);
     const previousTasks = tasks;
 
     setTasks((currentTasks) => currentTasks.map((task) => (

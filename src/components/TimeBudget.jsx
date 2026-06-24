@@ -1,14 +1,7 @@
 import { Clock3 } from 'lucide-react';
+import { formatMinutes } from '../lib/timeBudget';
 
 const CAPACITY_OPTIONS = [240, 360, 480];
-
-function formatMinutes(minutes) {
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (hours > 0 && rest > 0) return `${hours}h ${rest}m`;
-  if (hours > 0) return `${hours}h`;
-  return `${rest}m`;
-}
 
 export default function TimeBudget({ capacity, onCapacityChange, quadrantMinutes, unestimatedCount }) {
   const executionMinutes = quadrantMinutes.q1 + quadrantMinutes.q2;
