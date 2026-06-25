@@ -116,10 +116,12 @@ function formatTime(minutes) {
   return `${m}m`;
 }
 
-function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNote, updateTaskTime, activeTag, isCrushed, tagColor }) {
+function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskContent, updateTaskNote, updateTaskTime, activeTag, isCrushed, tagColor }) {
   const isDragging = isClone || snapshot.isDragging;
   const [isFlipped, setIsFlipped] = useState(false);
   const [note, setNote] = useState(task.notes || '');
+  const [isEditingContent, setIsEditingContent] = useState(false);
+  const [contentDraft, setContentDraft] = useState(task.content || '');
   const sectionColor = getMatrixSection(task.quadrant).color;
   const primaryTagColor = task.tags?.[0] ? tagColor(task.tags[0]) : sectionColor;
   const taskMinutes = task.timeEstimate || task.time_estimate || 0;
@@ -137,6 +139,39 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
     if (e) e.stopPropagation();
     updateTaskNote(task.id, note);
     setIsFlipped(false);
+  };
+
+  const startContentEdit = (event) => {
+    event.stopPropagation();
+    if (isDragging || isClone) return;
+    setContentDraft(task.content || '');
+    setIsEditingContent(true);
+  };
+
+  const saveContentEdit = async () => {
+    const nextContent = contentDraft.trim().replace(/\s+/g, ' ');
+    if (!nextContent) {
+      setContentDraft(task.content || '');
+      setIsEditingContent(false);
+      return;
+    }
+
+    setIsEditingContent(false);
+    if (nextContent !== task.content) {
+      await updateTaskContent(task.id, nextContent);
+    }
+  };
+
+  const handleContentKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveContentEdit();
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setContentDraft(task.content || '');
+      setIsEditingContent(false);
+    }
   };
 
   if (isFlipped) {
@@ -216,18 +251,36 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
         <GripVertical size={16} />
       </div>
       <span className="matrix-task-color-dot" style={{ '--tag-color': primaryTagColor }} aria-hidden="true" />
-      <span className="matrix-task-check" aria-hidden="true" />
 
       <div className="matrix-task-body" style={{display: 'flex', flexDirection: 'column', gap: '4px', flex: 1}}>
-        <div className="matrix-task-title-row" style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-          <span className="matrix-task-title" style={{wordBreak: 'break-all', fontSize: '0.9rem', fontWeight: 500}}>{task.content}</span>
-          {task.tags?.map(tag => (
-            <span className="matrix-task-inline-tag" key={tag} style={{ '--tag-color': tagColor(tag) }}>
-              #{tag}
-            </span>
-          ))}
-          {task.notes && <FileText size={12} color="var(--accent-color)" />}
-        </div>
+        {isEditingContent ? (
+          <input
+            autoFocus
+            className="matrix-task-edit-input"
+            value={contentDraft}
+            onBlur={saveContentEdit}
+            onChange={(event) => setContentDraft(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+            onKeyDown={handleContentKeyDown}
+          />
+        ) : (
+          <button
+            type="button"
+            className="matrix-task-title-button"
+            onClick={startContentEdit}
+            onDoubleClick={(event) => event.stopPropagation()}
+            title="클릭해서 내용 수정"
+          >
+            <span className="matrix-task-title" style={{wordBreak: 'break-all', fontSize: '0.9rem', fontWeight: 500}}>{task.content}</span>
+            {task.tags?.map(tag => (
+              <span className="matrix-task-inline-tag" key={tag} style={{ '--tag-color': tagColor(tag) }}>
+                #{tag}
+              </span>
+            ))}
+            {task.notes && <FileText size={12} color="var(--accent-color)" />}
+          </button>
+        )}
       </div>
 
       <div className="matrix-task-actions" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -244,7 +297,14 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
           <Clock size={14} />
           <span>{formatTime(taskMinutes) || '시간'}</span>
         </button>
-        <button onClick={() => removeTask(task.id)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: 0.5, padding: '4px' }}>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            removeTask(task.id);
+          }}
+          style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: 0.5, padding: '4px' }}
+        >
           <X size={16} />
         </button>
       </div>
@@ -264,6 +324,7 @@ function App() {
   const [activeTag, setActiveTag] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [crushedTaskId, setCrushedTaskId] = useState(null);
+  const [slateSourceId, setSlateSourceId] = useState('q1');
 
   const [selectedTime, setSelectedTime] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);
@@ -304,7 +365,8 @@ function App() {
   const mobileSection = MATRIX_SECTIONS.find(section => section.id === mobileSectionId) || MATRIX_SECTIONS[0];
   const mobileTasks = tasks.filter(t => t.quadrant === mobileSection.id && (!activeTag || (t.tags || []).includes(activeTag)));
   const dumpCount = tasks.filter(t => t.quadrant === 'sidebar').length;
-  const slateCandidateCount = tasks.filter(t => t.quadrant === 'q1').length;
+  const slateSource = getMatrixSection(slateSourceId);
+  const slateCandidateCount = tasks.filter(t => t.quadrant === slateSourceId).length;
   const slateReadyCount = Math.min(slateCandidateCount, MAX_SLATE_TASKS);
   const quadrantMinutes = useMemo(() => QUADRANTS.reduce((totals, quadrant) => ({
     ...totals,
@@ -631,6 +693,20 @@ function App() {
     }
   };
 
+  const updateTaskContent = async (id, newContent) => {
+    const previousTasks = tasks;
+    setTasks(tasks.map(t => t.id === id ? { ...t, content: newContent } : t));
+
+    if (isMatrixPreview) return;
+
+    const { error } = await supabase.from('matrix_tasks').update({ content: newContent }).eq('id', id);
+    if (error) {
+      console.error('Error updating content', error);
+      setTasks(previousTasks);
+      showImportNotice({ type: 'error', message: '작업 내용을 저장하지 못해 이전 내용으로 되돌렸습니다.' });
+    }
+  };
+
   const handleImportBrainDump = async () => {
     if (!session?.user?.id || isImportingBrainDump) return;
 
@@ -731,7 +807,7 @@ function App() {
   };
 
   const handleSendToSlate = () => {
-    const slateCandidates = tasks.filter(t => t.quadrant === 'q1');
+    const slateCandidates = tasks.filter(t => t.quadrant === slateSourceId);
     const todayTasks = slateCandidates
       .slice(0, MAX_SLATE_TASKS)
       .map(t => ({
@@ -744,7 +820,7 @@ function App() {
       }));
 
     if (slateCandidates.length === 0) {
-      alert('오늘 할 일(중요+긴급)이 없습니다!');
+      alert(`${slateSource.title}에 보낼 일이 없습니다!`);
       return;
     }
 
@@ -752,7 +828,7 @@ function App() {
     if (slateCandidates.length > MAX_SLATE_TASKS) {
       showImportNotice({
         type: 'info',
-        message: `ZeroSlate Top 3 제한으로 상위 ${MAX_SLATE_TASKS}개만 보냅니다.`
+        message: `${slateSource.mobileTitle}에서 ZeroSlate Top 3 제한으로 상위 ${MAX_SLATE_TASKS}개만 보냅니다.`
       });
     }
 
@@ -909,7 +985,7 @@ function App() {
                 renderClone={(provided, snapshot, rubric) => {
                   const task = tasks.find(t => t.id === rubric.draggableId);
                   if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
-                  return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} />;
+                  return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} />;
                 }}
               >
                 {(provided) => (
@@ -921,7 +997,7 @@ function App() {
                   >
                     {tasks.filter(t => t.quadrant === 'sidebar').map((task, index) => (
                       <Draggable key={task.id} draggableId={task.id} index={index}>
-                        {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} />}
+                        {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} />}
                       </Draggable>
                     ))}
                     {provided.placeholder}
@@ -1043,12 +1119,12 @@ function App() {
           <div className="matrix-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', height: '28px' }}>
             <p className="matrix-toolbar-summary" style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
               <span>우선순위 정리</span>
-              <strong>덤프 {dumpCount} · 전송 {slateReadyCount}</strong>
+              <strong>{slateSource.mobileTitle} {slateReadyCount}/{slateCandidateCount}</strong>
             </p>
             <div className="matrix-toolbar-cluster" style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
               <div className="matrix-account-pill" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
                 <div className="matrix-account-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success-color)' }} />
-                <span className="matrix-account-email" style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-color)' }}>{session.user.email}</span>
+                <span className="matrix-account-email" title={session.user.email} style={{ fontSize: '0.85rem', fontWeight: 560, color: 'var(--text-color)' }}>계정</span>
                 <button
                   className="matrix-logout-button"
                   onClick={() => supabase.auth.signOut()}
@@ -1089,9 +1165,26 @@ function App() {
                   <option value="coffee">Coffee</option>
                 </select>
               </div>
+              <label className="matrix-send-source">
+                <span>보낼 목록</span>
+                <select
+                  value={slateSourceId}
+                  onChange={(event) => setSlateSourceId(event.target.value)}
+                  aria-label="ZeroSlate로 보낼 목록 선택"
+                >
+                  {MATRIX_SECTIONS.map((section) => {
+                    const count = tasks.filter(t => t.quadrant === section.id).length;
+                    return (
+                      <option key={section.id} value={section.id}>
+                        {section.mobileTitle} {count}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
               <button type="button" className="matrix-send-button" onClick={handleSendToSlate}>
                 <span className={isSending ? 'rocket-animate' : ''} style={{ display: 'flex' }}>🚀</span>
-                <span>{isSending ? '전송중...' : '제로슬레이트로 보내기'}</span>
+                <span>{isSending ? '전송중...' : `${slateSource.mobileTitle} 보내기`}</span>
               </button>
             </div>
           </div>
@@ -1123,7 +1216,7 @@ function App() {
                         renderClone={(provided, snapshot, rubric) => {
                           const task = tasks.find(t => t.id === rubric.draggableId);
                           if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
-                          return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} />;
+                          return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} />;
                         }}
                       >
                         {(provided, snapshot) => (
@@ -1145,7 +1238,7 @@ function App() {
                           >
                             {tasks.filter(t => t.quadrant === q.id).map((task, index) => (
                               <Draggable key={task.id} draggableId={task.id} index={index}>
-                                {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} />}
+                                {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} />}
                               </Draggable>
                             ))}
                             {provided.placeholder}

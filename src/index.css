@@ -541,8 +541,8 @@ body {
 
 .matrix-account-email {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  text-overflow: clip;
   white-space: nowrap;
 }
 
@@ -578,6 +578,38 @@ body {
   line-height: 1 !important;
   white-space: nowrap;
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.matrix-send-source {
+  flex: 0 0 auto;
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+}
+
+.matrix-send-source span {
+  font-size: 0.72rem;
+  font-weight: 560;
+  white-space: nowrap;
+}
+
+.matrix-send-source select {
+  min-height: 30px;
+  min-width: 106px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--soft-surface);
+  color: var(--text-color);
+  font-size: 0.78rem;
+  font-weight: 620;
+  outline: none;
+  padding: 0 24px 0 8px;
 }
 
 .matrix-send-button:hover {
@@ -680,30 +712,30 @@ body {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--tag-color) 13%, transparent);
 }
 
-.matrix-task-check {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
-  border: 1px solid color-mix(in srgb, var(--text-secondary) 26%, var(--border-color));
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--card-bg) 84%, var(--soft-surface));
-}
-
 .matrix-task-body {
   min-width: 0;
   gap: 1px !important;
 }
 
-.matrix-task-title-row {
+.matrix-task-title-button {
   min-width: 0;
   width: 100%;
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 3px 6px !important;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: text;
 }
 
 .matrix-task-title {
   color: var(--text-color);
-  font-weight: 580 !important;
+  font-size: 0.82rem !important;
+  font-weight: 510 !important;
   line-height: 1.45;
   word-break: keep-all !important;
   overflow-wrap: anywhere;
@@ -711,10 +743,25 @@ body {
 
 .matrix-task-inline-tag {
   color: color-mix(in srgb, var(--tag-color) 72%, var(--text-secondary));
-  font-size: 0.84rem;
-  font-weight: 560;
+  font-size: 0.78rem;
+  font-weight: 520;
   line-height: 1.45;
   white-space: nowrap;
+}
+
+.matrix-task-edit-input {
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid color-mix(in srgb, var(--section-color, var(--accent-color)) 42%, var(--border-color));
+  border-radius: 9px;
+  background: var(--card-bg);
+  color: var(--text-color);
+  font-size: 0.82rem;
+  font-weight: 510;
+  line-height: 1.4;
+  outline: none;
+  padding: 5px 8px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--section-color, var(--accent-color)) 10%, transparent);
 }
 
 .matrix-task-chip {
