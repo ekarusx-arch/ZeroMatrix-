@@ -732,8 +732,25 @@ body {
   height: 12px;
   flex: 0 0 auto;
   border-radius: 999px;
+  border: 0;
   background: var(--tag-color);
+  padding: 0;
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--tag-color) 13%, transparent);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.matrix-task-color-dot.is-clickable {
+  cursor: pointer;
+}
+
+.matrix-task-color-dot.is-clickable:hover {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--tag-color) 18%, transparent);
+  transform: scale(1.08);
+}
+
+.matrix-task-color-dot.is-clickable:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--tag-color) 55%, var(--accent-color));
+  outline-offset: 3px;
 }
 
 .matrix-task-body {
