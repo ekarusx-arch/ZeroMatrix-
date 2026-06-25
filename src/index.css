@@ -249,7 +249,7 @@ body {
 }
 
 .matrix-app-header {
-  border: 1px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 22%, var(--border-color));
   border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--card-bg) 88%, transparent);
   box-shadow: var(--shadow-sm);
@@ -265,6 +265,8 @@ body {
 }
 
 .matrix-header-account {
+  border-width: 1px !important;
+  border-color: color-mix(in srgb, var(--accent-color) 22%, var(--border-color)) !important;
   max-width: none !important;
   min-height: 34px !important;
   flex: 0 0 auto !important;
@@ -274,7 +276,8 @@ body {
 .matrix-header-theme-select {
   min-width: 112px !important;
   min-height: 34px !important;
-  border-color: var(--border-color) !important;
+  border-width: 1px !important;
+  border-color: color-mix(in srgb, var(--accent-color) 22%, var(--border-color)) !important;
   background-color: color-mix(in srgb, var(--soft-surface) 64%, var(--card-bg)) !important;
 }
 
@@ -300,7 +303,7 @@ body {
   gap: 4px;
   min-width: 0;
   padding: 4px;
-  border: 1px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 22%, var(--border-color));
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--soft-surface) 70%, var(--card-bg));
 }
@@ -372,7 +375,8 @@ body {
 .matrix-sidebar-list,
 .matrix-board {
   border-radius: var(--radius-xl) !important;
-  border-color: var(--border-color) !important;
+  border-width: 1px !important;
+  border-color: color-mix(in srgb, var(--accent-color) 22%, var(--border-color)) !important;
   background: var(--panel-bg) !important;
   box-shadow: var(--panel-shadow) !important;
 }
@@ -490,8 +494,24 @@ body {
   letter-spacing: 0;
 }
 
+.matrix-task-form {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+.matrix-task-form .glass-input {
+  width: 100%;
+  min-width: 0;
+}
+
 .matrix-task-form button[type="submit"] {
+  width: 42px;
   min-width: 42px;
+  flex: 0 0 42px;
+  padding: 0 !important;
   border-radius: var(--radius-md) !important;
   background: var(--accent-color) !important;
   box-shadow: 0 8px 18px color-mix(in srgb, var(--accent-color) 18%, transparent);
@@ -502,7 +522,7 @@ body {
   height: auto !important;
   gap: 12px;
   padding: 8px 10px 8px 14px;
-  border: 1px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 22%, var(--border-color));
   border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--card-bg) 92%, transparent);
   box-shadow: var(--shadow-sm);
@@ -546,7 +566,8 @@ body {
 .matrix-account-pill {
   border-radius: var(--radius-lg) !important;
   background: var(--card-bg) !important;
-  border-color: var(--border-color) !important;
+  border-width: 1px !important;
+  border-color: color-mix(in srgb, var(--accent-color) 22%, var(--border-color)) !important;
   box-shadow: none !important;
   min-width: 0;
   max-width: 220px;
@@ -607,7 +628,7 @@ body {
   align-items: center;
   gap: 7px;
   padding: 0 8px 0 10px;
-  border: 1px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 22%, var(--border-color));
   border-radius: var(--radius-lg);
   background: var(--card-bg);
   color: var(--text-secondary);
@@ -1351,6 +1372,7 @@ body {
 
   .matrix-task-form {
     gap: 8px !important;
+    grid-template-columns: minmax(0, 1fr) 50px;
   }
 
   .matrix-task-form .glass-input {
