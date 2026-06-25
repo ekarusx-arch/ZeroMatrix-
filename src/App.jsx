@@ -121,6 +121,8 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
   const [isFlipped, setIsFlipped] = useState(false);
   const [note, setNote] = useState(task.notes || '');
   const sectionColor = getMatrixSection(task.quadrant).color;
+  const primaryTagColor = task.tags?.[0] ? tagColor(task.tags[0]) : sectionColor;
+  const taskMinutes = task.timeEstimate || task.time_estimate || 0;
 
   const isFilteredOut = activeTag && !(task.tags || []).includes(activeTag);
   const opacity = (isFilteredOut && !isDragging) ? 0.3 : 1;
@@ -213,26 +215,19 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
       <div className="matrix-task-grip" {...provided.dragHandleProps} style={{ display: 'flex', alignItems: 'center', color: 'var(--border-color)', cursor: isDragging ? 'grabbing' : 'grab' }}>
         <GripVertical size={16} />
       </div>
+      <span className="matrix-task-color-dot" style={{ '--tag-color': primaryTagColor }} aria-hidden="true" />
+      <span className="matrix-task-check" aria-hidden="true" />
 
       <div className="matrix-task-body" style={{display: 'flex', flexDirection: 'column', gap: '4px', flex: 1}}>
         <div className="matrix-task-title-row" style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
           <span className="matrix-task-title" style={{wordBreak: 'break-all', fontSize: '0.9rem', fontWeight: 500}}>{task.content}</span>
+          {task.tags?.map(tag => (
+            <span className="matrix-task-inline-tag" key={tag} style={{ '--tag-color': tagColor(tag) }}>
+              #{tag}
+            </span>
+          ))}
           {task.notes && <FileText size={12} color="var(--accent-color)" />}
         </div>
-        {(task.timeEstimate > 0 || (task.tags && task.tags.length > 0)) && (
-          <div className="matrix-task-meta" style={{display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap'}}>
-            {task.timeEstimate > 0 && (
-              <span className="matrix-task-chip" style={{fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '3px', background: 'var(--bg-color)', color: 'var(--text-secondary)', padding: '2px 8px', borderRadius: '12px'}}>
-                <Clock size={10} /> {formatTime(task.timeEstimate)}
-              </span>
-            )}
-            {task.tags?.map(tag => (
-              <span className="matrix-task-chip is-tag" key={tag} style={{ '--tag-color': tagColor(tag) }}>
-                <span className="matrix-task-tag-dot" aria-hidden="true" />#{tag}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
       <div className="matrix-task-actions" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -247,7 +242,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
           aria-label={`${task.content} 예상 시간 변경`}
         >
           <Clock size={14} />
-          <span>{formatTime(task.timeEstimate || task.time_estimate || 0) || '시간'}</span>
+          <span>{formatTime(taskMinutes) || '시간'}</span>
         </button>
         <button onClick={() => removeTask(task.id)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: 0.5, padding: '4px' }}>
           <X size={16} />
@@ -792,9 +787,9 @@ function App() {
       <SuiteBackButton href={returnUrl} />
       <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="matrix-shell" style={{ background: 'var(--bg-color)', display: 'flex', justifyContent: 'center', height: '100vh' }}>
-          <div className="matrix-workspace" style={{ display: 'flex', width: '100%', maxWidth: '1560px', padding: '24px', gap: '24px' }}>
+          <div className="matrix-workspace" style={{ display: 'flex', width: '100%', maxWidth: '1760px', padding: '24px', gap: '24px' }}>
           {/* Sidebar - Brain Dump */}
-          <div className="matrix-sidebar" style={{ display: 'flex', flexDirection: 'column', width: 'clamp(560px, 42vw, 680px)', flex: '0 1 clamp(560px, 42vw, 680px)', minWidth: '520px' }}>
+          <div className="matrix-sidebar" style={{ display: 'flex', flexDirection: 'column', width: 'clamp(720px, 50vw, 860px)', flex: '0 1 clamp(720px, 50vw, 860px)', minWidth: '680px' }}>
           {/* Header */}
           <div className="matrix-app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h1 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
@@ -901,6 +896,14 @@ function App() {
 
             {/* Droppable Sidebar List */}
             <div className="glass-panel matrix-sidebar-list" style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
+              <div className="matrix-list-heading">
+                <div className="matrix-list-heading-main">
+                  <span className="matrix-list-icon" aria-hidden="true">⚡</span>
+                  <strong>Brain Dump</strong>
+                  <span>{dumpCount}개</span>
+                </div>
+                <span className="matrix-list-filter-lines" aria-hidden="true" />
+              </div>
               <Droppable
                 droppableId="sidebar"
                 renderClone={(provided, snapshot, rubric) => {
@@ -913,6 +916,7 @@ function App() {
                   <div
                     {...provided.droppableProps}
                     ref={provided.innerRef}
+                    className="matrix-task-stack matrix-dump-stack"
                     style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}
                   >
                     {tasks.filter(t => t.quadrant === 'sidebar').map((task, index) => (
@@ -1126,6 +1130,7 @@ function App() {
                           <div
                             {...provided.droppableProps}
                             ref={provided.innerRef}
+                            className="matrix-task-stack"
                             style={{
                               flex: 1,
                               overflowY: 'auto',
