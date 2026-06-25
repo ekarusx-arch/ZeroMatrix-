@@ -64,6 +64,13 @@ function getInitialSuiteDate() {
   return /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : getLocalDateKey();
 }
 
+function getAccountDisplayName(user) {
+  const metadata = user?.user_metadata || {};
+  const name = metadata.full_name || metadata.name || metadata.preferred_username;
+  if (name) return String(name).trim();
+  return user?.email?.split('@')[0] || '계정';
+}
+
 function normalizeTaskContent(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
@@ -116,7 +123,7 @@ function formatTime(minutes) {
   return `${m}m`;
 }
 
-function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskContent, updateTaskNote, updateTaskTime, activeTag, isCrushed, tagColor, onTaskTagCycle, canCycleTags }) {
+function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskContent, updateTaskNote, updateTaskTime, activeTag, isCrushed, tagColor, onTaskTagCycle, tagOptionCount }) {
   const isDragging = isClone || snapshot.isDragging;
   const [isFlipped, setIsFlipped] = useState(false);
   const [note, setNote] = useState(task.notes || '');
@@ -125,7 +132,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskCon
   const sectionColor = getMatrixSection(task.quadrant).color;
   const primaryTag = task.tags?.[0] || null;
   const primaryTagColor = primaryTag ? tagColor(primaryTag) : sectionColor;
-  const canCycleTaskTag = Boolean(primaryTag && canCycleTags && !isClone);
+  const canCycleTaskTag = Boolean(!isClone && (primaryTag ? tagOptionCount > 1 : tagOptionCount > 0));
   const taskMinutes = task.timeEstimate || task.time_estimate || 0;
 
   const isFilteredOut = activeTag && !(task.tags || []).includes(activeTag);
@@ -178,7 +185,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskCon
 
   const handleTaskTagCycle = (event) => {
     event.stopPropagation();
-    if (!primaryTag || isDragging || isClone) return;
+    if (!canCycleTaskTag || isDragging) return;
     onTaskTagCycle(task.id);
   };
 
@@ -265,8 +272,8 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskCon
           style={{ '--tag-color': primaryTagColor }}
           onClick={handleTaskTagCycle}
           onDoubleClick={(event) => event.stopPropagation()}
-          aria-label={`#${primaryTag} 태그 변경`}
-          title={`#${primaryTag} 태그 변경`}
+          aria-label={primaryTag ? `#${primaryTag} 태그 변경` : '태그 적용'}
+          title={primaryTag ? `#${primaryTag} 태그 변경` : '태그 적용'}
         />
       ) : (
         <span className="matrix-task-color-dot" style={{ '--tag-color': primaryTagColor }} aria-hidden="true" />
@@ -371,6 +378,7 @@ function App() {
     const sharedPalette = tagPalette.filter((item) => usedTags.has(item.tag));
     target.searchParams.set('from', 'matrix');
     target.searchParams.set('matrixVersion', '2');
+    target.searchParams.set('date', selectedDate);
     target.searchParams.set('matrixTasks', JSON.stringify(selectedTasks));
     target.searchParams.set('matrixTags', JSON.stringify(toSlateTagPalette(sharedPalette)));
     return target.toString();
@@ -388,6 +396,7 @@ function App() {
   const slateSource = getMatrixSection(slateSourceId);
   const slateCandidateCount = tasks.filter(t => t.quadrant === slateSourceId).length;
   const slateReadyCount = Math.min(slateCandidateCount, MAX_SLATE_TASKS);
+  const accountLabel = session ? getAccountDisplayName(session.user) : '계정';
   const quadrantMinutes = useMemo(() => QUADRANTS.reduce((totals, quadrant) => ({
     ...totals,
     [quadrant.id]: tasks
@@ -857,7 +866,8 @@ function App() {
     }
   };
 
-  const handleSendToSlate = () => {
+  const handleSendToSlate = async () => {
+    if (isSending) return;
     const slateCandidates = tasks.filter(t => t.quadrant === slateSourceId);
     const todayTasks = slateCandidates
       .slice(0, MAX_SLATE_TASKS)
@@ -876,9 +886,31 @@ function App() {
     }
 
     setIsSending(true);
+
+    if (!isMatrixPreview && session?.user?.id) {
+      const { count, error } = await supabase
+        .from('top_three')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', session.user.id)
+        .eq('date', selectedDate);
+
+      if (error) {
+        console.error('ZeroSlate Top 3 check failed:', error);
+        showImportNotice({ type: 'error', message: 'ZeroSlate Top 3 상태를 확인하지 못했습니다.' });
+        setIsSending(false);
+        return;
+      }
+
+      if ((count || 0) > 0) {
+        showImportNotice({ type: 'error', message: 'ZeroSlate Top 3에 기존 항목이 있어 보내기를 중단했습니다.' });
+        setIsSending(false);
+        return;
+      }
+    }
+
     if (slateCandidates.length > MAX_SLATE_TASKS) {
       showImportNotice({
-        type: 'info',
+        type: 'success',
         message: `${slateSource.mobileTitle}에서 ZeroSlate Top 3 제한으로 상위 ${MAX_SLATE_TASKS}개만 보냅니다.`
       });
     }
@@ -928,7 +960,7 @@ function App() {
             <div className="matrix-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div className="matrix-account-pill matrix-header-account" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
                 <div className="matrix-account-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success-color)' }} />
-                <span className="matrix-account-email" title={session.user.email} style={{ fontSize: '0.85rem', fontWeight: 560, color: 'var(--text-color)' }}>계정</span>
+                <span className="matrix-account-email" title={session.user.email} style={{ fontSize: '0.85rem', fontWeight: 560, color: 'var(--text-color)' }}>{accountLabel}</span>
                 <button
                   className="matrix-logout-button"
                   onClick={() => supabase.auth.signOut()}
@@ -1040,7 +1072,7 @@ function App() {
                 renderClone={(provided, snapshot, rubric) => {
                   const task = tasks.find(t => t.id === rubric.draggableId);
                   if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
-                  return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} canCycleTags={allTags.length > 1} />;
+                  return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} tagOptionCount={allTags.length} />;
                 }}
               >
                 {(provided) => (
@@ -1052,7 +1084,7 @@ function App() {
                   >
                     {tasks.filter(t => t.quadrant === 'sidebar').map((task, index) => (
                       <Draggable key={task.id} draggableId={task.id} index={index}>
-                        {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} canCycleTags={allTags.length > 1} />}
+                        {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} tagOptionCount={allTags.length} />}
                       </Draggable>
                     ))}
                     {provided.placeholder}
@@ -1154,7 +1186,7 @@ function App() {
                           <button type="button" onClick={() => updateTaskTime(task.id)}>
                             <Clock size={13} /> {formatTime(taskMinutes) || '시간'}
                           </button>
-                          {(task.tags?.length > 0 && allTags.length > 1) && (
+                          {((task.tags?.length > 0 ? allTags.length > 1 : allTags.length > 0)) && (
                             <button type="button" onClick={() => handleTaskTagCycle(task.id)}>
                               <TagIcon size={13} /> 태그
                             </button>
@@ -1211,7 +1243,7 @@ function App() {
                   })}
                 </select>
               </label>
-              <button type="button" className="matrix-send-button" onClick={handleSendToSlate}>
+              <button type="button" className="matrix-send-button" onClick={handleSendToSlate} disabled={isSending}>
                 <span className={isSending ? 'rocket-animate' : ''} style={{ display: 'flex' }}>🚀</span>
                 <span>{isSending ? '전송중...' : `${slateSource.mobileTitle} 보내기`}</span>
               </button>
@@ -1245,7 +1277,7 @@ function App() {
                         renderClone={(provided, snapshot, rubric) => {
                           const task = tasks.find(t => t.id === rubric.draggableId);
                           if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
-                          return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} canCycleTags={allTags.length > 1} />;
+                          return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} tagOptionCount={allTags.length} />;
                         }}
                       >
                         {(provided, snapshot) => (
@@ -1267,7 +1299,7 @@ function App() {
                           >
                             {tasks.filter(t => t.quadrant === q.id).map((task, index) => (
                               <Draggable key={task.id} draggableId={task.id} index={index}>
-                                {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} canCycleTags={allTags.length > 1} />}
+                                {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} tagOptionCount={allTags.length} />}
                               </Draggable>
                             ))}
                             {provided.placeholder}
