@@ -380,6 +380,41 @@ body {
   box-shadow: var(--panel-shadow) !important;
 }
 
+.matrix-sidebar,
+.matrix-main {
+  min-height: 0;
+}
+
+.matrix-main {
+  min-width: 0;
+}
+
+.matrix-dump-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.88fr) minmax(286px, 1fr);
+  gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.matrix-dump-controls {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.matrix-dump-controls .matrix-input-panel {
+  margin-bottom: 12px !important;
+}
+
+.matrix-dump-layout .matrix-sidebar-list {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
 .matrix-input-panel h2 {
   letter-spacing: 0;
 }
@@ -538,8 +573,8 @@ body {
 
 .matrix-sidebar-list .glass-button:hover,
 .matrix-board .glass-button:hover {
-  border-color: color-mix(in srgb, var(--accent-color) 28%, var(--border-color)) !important;
-  background: color-mix(in srgb, var(--accent-color) 4%, var(--card-bg)) !important;
+  border-color: color-mix(in srgb, var(--section-color, var(--accent-color)) 28%, var(--border-color)) !important;
+  background: color-mix(in srgb, var(--section-color, var(--accent-color)) 4%, var(--card-bg)) !important;
 }
 
 .matrix-task-card {
@@ -559,13 +594,13 @@ body {
   inset: 10px auto 10px 0;
   width: 3px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent-color) 58%, var(--border-color));
-  opacity: 0.72;
+  background: color-mix(in srgb, var(--section-color, var(--accent-color)) 64%, var(--border-color));
+  opacity: 0.82;
 }
 
 .matrix-task-card:hover {
-  border-color: color-mix(in srgb, var(--accent-color) 34%, var(--border-color)) !important;
-  background: color-mix(in srgb, var(--accent-color) 3%, var(--card-bg)) !important;
+  border-color: color-mix(in srgb, var(--section-color, var(--accent-color)) 34%, var(--border-color)) !important;
+  background: color-mix(in srgb, var(--section-color, var(--accent-color)) 3%, var(--card-bg)) !important;
   transform: translateY(-1px);
 }
 
@@ -594,9 +629,9 @@ body {
 }
 
 .matrix-task-chip.is-tag {
-  border-color: color-mix(in srgb, var(--accent-color) 20%, var(--border-color));
-  background: color-mix(in srgb, var(--accent-color) 7%, var(--card-bg)) !important;
-  color: var(--accent-color) !important;
+  border-color: color-mix(in srgb, var(--tag-color) 32%, var(--border-color));
+  background: color-mix(in srgb, var(--tag-color) 9%, var(--card-bg)) !important;
+  color: color-mix(in srgb, var(--tag-color) 72%, var(--text-color)) !important;
 }
 
 .matrix-task-actions button {
@@ -634,6 +669,26 @@ body {
   }
 }
 
+@media (max-width: 1180px) and (min-width: 769px) {
+  .matrix-workspace {
+    flex-direction: column;
+  }
+
+  .matrix-sidebar {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: 0 0 auto !important;
+  }
+
+  .matrix-main {
+    min-height: 760px;
+  }
+
+  .matrix-dump-layout {
+    grid-template-columns: minmax(300px, 0.72fr) minmax(360px, 1fr);
+  }
+}
+
 @media (max-width: 768px) {
   .suite-back-button {
     top: calc(env(safe-area-inset-top, 0px) + 10px);
@@ -659,6 +714,7 @@ body {
 
   .matrix-sidebar {
     width: 100% !important;
+    min-width: 0 !important;
     min-height: auto;
     max-height: none;
   }
@@ -697,6 +753,11 @@ body {
     margin-bottom: 12px !important;
     padding: 14px !important;
     border-radius: 18px;
+  }
+
+  .matrix-dump-layout,
+  .matrix-dump-controls {
+    display: block;
   }
 
   .matrix-task-form input {

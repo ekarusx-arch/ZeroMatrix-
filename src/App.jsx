@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/refs -- @hello-pangea/dnd exposes render-prop refs that React 19 lint treats as ref reads. */
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { ArrowLeft, GripVertical, X, Clock, Tag, FileText, Plus, LogOut, AlertCircle, Download } from 'lucide-react';
+import { ArrowLeft, GripVertical, X, Clock, FileText, Plus, LogOut, AlertCircle, Download } from 'lucide-react';
 import Auth from './components/Auth';
 import { TagFilterBar, TagSelectionRow } from './components/TagControls';
 import TimeBudget from './components/TimeBudget';
@@ -21,6 +21,10 @@ const MATRIX_SECTIONS = [
   { id: 'sidebar', title: '브레인 덤프', mobileTitle: '덤프', color: 'var(--accent-color)' },
   ...QUADRANTS,
 ];
+
+function getMatrixSection(sectionId) {
+  return MATRIX_SECTIONS.find((section) => section.id === sectionId) || MATRIX_SECTIONS[0];
+}
 
 const ZERO_SLATE_URL = 'https://zeroslate.kr';
 const MAX_SLATE_TASKS = 3;
@@ -116,6 +120,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
   const isDragging = isClone || snapshot.isDragging;
   const [isFlipped, setIsFlipped] = useState(false);
   const [note, setNote] = useState(task.notes || '');
+  const sectionColor = getMatrixSection(task.quadrant).color;
 
   const isFilteredOut = activeTag && !(task.tags || []).includes(activeTag);
   const opacity = (isFilteredOut && !isDragging) ? 0.3 : 1;
@@ -150,6 +155,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
           color: 'var(--text-color)',
           textAlign: 'left',
           margin: 0,
+          '--section-color': sectionColor,
           transition: [provided.draggableProps.style?.transition, 'opacity 0.2s', 'background 0.2s', 'box-shadow 0.2s'].filter(Boolean).join(', ')
         }}
       >
@@ -169,7 +175,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
           onChange={(e) => setNote(e.target.value)}
           placeholder="여기에 세부 사항이나 메모를 적어주세요..."
         />
-        <button 
+        <button
           onClick={handleSaveNote}
           style={{ background: 'var(--accent-color)', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}
         >
@@ -200,6 +206,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
         margin: '0 0 8px 0',
         opacity: opacity,
         borderRadius: '8px',
+        '--section-color': sectionColor,
         transition: [provided.draggableProps.style?.transition, 'opacity 0.2s', 'background 0.2s', 'box-shadow 0.2s'].filter(Boolean).join(', ')
       }}
     >
@@ -221,7 +228,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
             )}
             {task.tags?.map(tag => (
               <span className="matrix-task-chip is-tag" key={tag} style={{ '--tag-color': tagColor(tag) }}>
-                <Tag size={10} /> {tag}
+                <span className="matrix-task-tag-dot" aria-hidden="true" />#{tag}
               </span>
             ))}
           </div>
@@ -361,7 +368,7 @@ function App() {
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: true });
-      
+
     if (error) {
       console.error('Error fetching tasks', error);
       showImportNotice({ type: 'error', message: 'Matrix 작업을 불러오지 못했습니다.' });
@@ -443,13 +450,13 @@ function App() {
     const previousTasks = tasks;
     const newTasks = Array.from(tasks);
     const globalIndex = newTasks.findIndex(t => t.id === result.draggableId);
-    
+
     const draggedTask = { ...newTasks.splice(globalIndex, 1)[0] };
     draggedTask.quadrant = destination.droppableId;
 
     let insertIndex = newTasks.length;
     let localIndexCount = 0;
-    
+
     for (let i = 0; i < newTasks.length; i++) {
       if (newTasks[i].quadrant === destination.droppableId) {
         if (localIndexCount === destination.index) {
@@ -459,7 +466,7 @@ function App() {
         localIndexCount++;
       }
     }
-    
+
     if (insertIndex === newTasks.length && localIndexCount === destination.index) {
       let lastIndex = -1;
       for (let i = 0; i < newTasks.length; i++) {
@@ -574,7 +581,7 @@ function App() {
   const handleAddTask = async (e) => {
     e.preventDefault();
     if (!newTask.trim() || !session) return;
-    
+
     let content = newTask.trim();
     if (selectedTime) content += ` [${selectedTime}]`;
     if (selectedTags.length > 0) {
@@ -593,7 +600,7 @@ function App() {
     };
 
     const { data, error } = await supabase.from('matrix_tasks').insert(newTaskObj).select().single();
-    
+
     if (!error && data) {
       setTasks(currentTasks => [...currentTasks, { ...data, timeEstimate: data.time_estimate }]);
       await ensureTagsInPalette(parsed.tags);
@@ -764,7 +771,7 @@ function App() {
       tags: toSlateTagPalette(tagPalette),
       version: 2,
     }));
-    
+
     setTimeout(() => {
       navigator.clipboard?.writeText(textToCopy).catch(() => {});
       window.location.assign(buildSlateImportUrl(todayTasks));
@@ -785,9 +792,9 @@ function App() {
       <SuiteBackButton href={returnUrl} />
       <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="matrix-shell" style={{ background: 'var(--bg-color)', display: 'flex', justifyContent: 'center', height: '100vh' }}>
-          <div className="matrix-workspace" style={{ display: 'flex', width: '100%', maxWidth: '1400px', padding: '24px', gap: '24px' }}>
+          <div className="matrix-workspace" style={{ display: 'flex', width: '100%', maxWidth: '1560px', padding: '24px', gap: '24px' }}>
           {/* Sidebar - Brain Dump */}
-          <div className="matrix-sidebar" style={{ display: 'flex', flexDirection: 'column', width: '380px', flexShrink: 0 }}>
+          <div className="matrix-sidebar" style={{ display: 'flex', flexDirection: 'column', width: 'clamp(560px, 42vw, 680px)', flex: '0 1 clamp(560px, 42vw, 680px)', minWidth: '520px' }}>
           {/* Header */}
           <div className="matrix-app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h1 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
@@ -806,7 +813,7 @@ function App() {
               >
                 <Download size={14} /> {isImportingBrainDump ? '가져오는 중' : 'Slate'}
               </button>
-              <select 
+              <select
                 value={theme}
                 onChange={(e) => {setTheme(e.target.value); localStorage.setItem('zeromatrix-theme', e.target.value); document.documentElement.setAttribute('data-theme', e.target.value);}}
                 className="theme-select"
@@ -824,70 +831,101 @@ function App() {
             </div>
           </div>
 
-          {/* Input Panel */}
-          <div className="glass-panel matrix-input-panel" style={{ padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-color)' }}>
-              <span style={{ color: 'var(--accent-color)' }}>⚡️</span> Brain Dump
-            </h2>
-            
-            <form className="matrix-task-form" onSubmit={handleAddTask} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-              <input 
-                type="text" 
-                className="glass-input" 
-                placeholder="할 일 적기..." 
-                value={newTask}
-                onChange={(e) => setNewTask(e.target.value)}
-                style={{ flex: 1, padding: '10px 14px', fontSize: '0.9rem', outline: 'none' }}
-              />
-              <button type="submit" style={{ padding: '0 16px', background: 'var(--accent-color)', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', transition: 'background 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Plus size={18} />
-              </button>
-            </form>
-            
-            <div className="matrix-entry-options">
-              <div className="matrix-time-preset" aria-label="새 작업 예상 시간">
-                <Clock size={12} color="var(--text-secondary)" />
-                {['15m', '30m', '1h', '2h'].map(t => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setSelectedTime(selectedTime === t ? null : t)}
-                    className={selectedTime === t ? 'is-active' : ''}
-                    aria-pressed={selectedTime === t}
-                  >
-                    {t}
+          <div className="matrix-dump-layout">
+            <div className="matrix-dump-controls">
+              {/* Input Panel */}
+              <div className="glass-panel matrix-input-panel" style={{ padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column' }}>
+                <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-color)' }}>
+                  <span style={{ color: 'var(--accent-color)' }}>⚡️</span> Brain Dump
+                </h2>
+
+                <form className="matrix-task-form" onSubmit={handleAddTask} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                  <input
+                    type="text"
+                    className="glass-input"
+                    placeholder="할 일 적기..."
+                    value={newTask}
+                    onChange={(e) => setNewTask(e.target.value)}
+                    style={{ flex: 1, padding: '10px 14px', fontSize: '0.9rem', outline: 'none' }}
+                  />
+                  <button type="submit" style={{ padding: '0 16px', background: 'var(--accent-color)', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', transition: 'background 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Plus size={18} />
                   </button>
-                ))}
+                </form>
+
+                <div className="matrix-entry-options">
+                  <div className="matrix-time-preset" aria-label="새 작업 예상 시간">
+                    <Clock size={12} color="var(--text-secondary)" />
+                    {['15m', '30m', '1h', '2h'].map(t => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setSelectedTime(selectedTime === t ? null : t)}
+                        className={selectedTime === t ? 'is-active' : ''}
+                        aria-pressed={selectedTime === t}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                  <TagSelectionRow
+                    tags={allTags}
+                    selectedTags={selectedTags}
+                    getColor={tagColor}
+                    onToggle={toggleTagSelection}
+                  />
+                </div>
+
+                <TimeBudget
+                  capacity={dailyCapacityMinutes}
+                  onCapacityChange={handleCapacityChange}
+                  quadrantMinutes={quadrantMinutes}
+                  unestimatedCount={unestimatedExecutionCount}
+                />
+
+                {importNotice && (
+                  <div className={`matrix-import-notice is-${importNotice.type}`}>
+                    {importNotice.message}
+                  </div>
+                )}
               </div>
-              <TagSelectionRow
+
+              <TagFilterBar
                 tags={allTags}
-                selectedTags={selectedTags}
+                activeTag={activeTag}
                 getColor={tagColor}
-                onToggle={toggleTagSelection}
+                onFilter={setActiveTag}
+                onColorChange={handleTagColorChange}
               />
             </div>
 
-            <TimeBudget
-              capacity={dailyCapacityMinutes}
-              onCapacityChange={handleCapacityChange}
-              quadrantMinutes={quadrantMinutes}
-              unestimatedCount={unestimatedExecutionCount}
-            />
-
-            {importNotice && (
-              <div className={`matrix-import-notice is-${importNotice.type}`}>
-                {importNotice.message}
-              </div>
-            )}
+            {/* Droppable Sidebar List */}
+            <div className="glass-panel matrix-sidebar-list" style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
+              <Droppable
+                droppableId="sidebar"
+                renderClone={(provided, snapshot, rubric) => {
+                  const task = tasks.find(t => t.id === rubric.draggableId);
+                  if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
+                  return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} />;
+                }}
+              >
+                {(provided) => (
+                  <div
+                    {...provided.droppableProps}
+                    ref={provided.innerRef}
+                    style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}
+                  >
+                    {tasks.filter(t => t.quadrant === 'sidebar').map((task, index) => (
+                      <Draggable key={task.id} draggableId={task.id} index={index}>
+                        {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} />}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </div>
           </div>
-
-          <TagFilterBar
-            tags={allTags}
-            activeTag={activeTag}
-            getColor={tagColor}
-            onFilter={setActiveTag}
-            onColorChange={handleTagColorChange}
-          />
 
           <div className="mobile-matrix-flow">
             <div className="mobile-section-tabs" role="tablist" aria-label="ZeroMatrix sections">
@@ -971,7 +1009,7 @@ function App() {
                               {taskMinutes > 0 && <span><Clock size={10} /> {formatTime(taskMinutes)}</span>}
                               {task.tags?.map(tag => (
                                 <span key={tag} className="is-tag" style={{ '--tag-color': tagColor(tag) }}>
-                                  <Tag size={10} /> {tag}
+                                  <span className="matrix-task-tag-dot" aria-hidden="true" />#{tag}
                                 </span>
                               ))}
                             </span>
@@ -993,32 +1031,6 @@ function App() {
             </section>
           </div>
 
-          {/* Droppable Sidebar List */}
-          <div className="glass-panel matrix-sidebar-list" style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
-            <Droppable 
-              droppableId="sidebar"
-              renderClone={(provided, snapshot, rubric) => {
-                const task = tasks.find(t => t.id === rubric.draggableId);
-                if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
-                return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} />;
-              }}
-            >
-              {(provided) => (
-                <div 
-                  {...provided.droppableProps} 
-                  ref={provided.innerRef}
-                  style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}
-                >
-                  {tasks.filter(t => t.quadrant === 'sidebar').map((task, index) => (
-                    <Draggable key={task.id} draggableId={task.id} index={index}>
-                      {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} />}
-                    </Draggable>
-                  ))}
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
-          </div>
         </div>
 
         {/* Main Content - Matrix */}
@@ -1033,7 +1045,7 @@ function App() {
               <div className="matrix-account-pill" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
                 <div className="matrix-account-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success-color)' }} />
                 <span className="matrix-account-email" style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-color)' }}>{session.user.email}</span>
-                <button 
+                <button
                   className="matrix-logout-button"
                   onClick={() => supabase.auth.signOut()}
                   style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', marginLeft: '4px', opacity: 0.7 }}
@@ -1102,7 +1114,7 @@ function App() {
                           </span>
                         )}
                       </h3>
-                      <Droppable 
+                      <Droppable
                         droppableId={q.id}
                         renderClone={(provided, snapshot, rubric) => {
                           const task = tasks.find(t => t.id === rubric.draggableId);
@@ -1111,14 +1123,14 @@ function App() {
                         }}
                       >
                         {(provided, snapshot) => (
-                          <div 
-                            {...provided.droppableProps} 
+                          <div
+                            {...provided.droppableProps}
                             ref={provided.innerRef}
-                            style={{ 
-                              flex: 1, 
-                              overflowY: 'auto', 
-                              display: 'flex', 
-                              flexDirection: 'column', 
+                            style={{
+                              flex: 1,
+                              overflowY: 'auto',
+                              display: 'flex',
+                              flexDirection: 'column',
                               gap: '8px',
                               background: snapshot.isDraggingOver ? 'var(--bg-color)' : 'transparent',
                               borderRadius: '8px',
@@ -1147,15 +1159,15 @@ function App() {
       </DragDropContext>
 
       {nudgeMessage && (
-        <div 
-          className="glass-panel" 
-          style={{ 
-            position: 'fixed', 
-            bottom: '2rem', 
-            right: '2rem', 
-            padding: '1rem 1.5rem', 
-            display: 'flex', 
-            alignItems: 'center', 
+        <div
+          className="glass-panel"
+          style={{
+            position: 'fixed',
+            bottom: '2rem',
+            right: '2rem',
+            padding: '1rem 1.5rem',
+            display: 'flex',
+            alignItems: 'center',
             gap: '12px',
             animation: 'slideUp 0.3s ease-out',
             borderLeft: '4px solid var(--danger-color)',
