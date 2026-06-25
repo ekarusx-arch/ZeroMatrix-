@@ -23,7 +23,7 @@
 .matrix-tag-all,
 .matrix-tag-filter-chip {
   min-height: 30px;
-  border: 1px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
   background: transparent;
   color: var(--text-secondary);
   font-size: 0.74rem;
@@ -36,8 +36,8 @@
   border-radius: 8px;
 }
 .matrix-time-preset button.is-active {
-  border-color: var(--accent-color);
-  background: var(--accent-light);
+  border-color: color-mix(in srgb, var(--accent-color) 34%, var(--border-color));
+  background: color-mix(in srgb, var(--accent-color) 8%, var(--card-bg));
   color: var(--accent-color);
 }
 .matrix-tag-selection {
@@ -102,7 +102,7 @@
 .matrix-capacity-options {
   gap: 2px;
   padding: 3px;
-  border: 1px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
   border-radius: 9px;
   background: var(--soft-surface);
 }
@@ -111,15 +111,17 @@
   min-height: 27px;
   padding: 3px 7px;
   border-radius: 6px;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
   font-size: 0.68rem;
   font-weight: 600;
 }
 .matrix-capacity-options button.is-active {
+  border-color: color-mix(in srgb, var(--accent-color) 28%, var(--border-color));
   background: var(--card-bg);
   color: var(--accent-color);
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 .matrix-time-track {
   display: flex;
@@ -282,6 +284,8 @@
   align-items: center;
   gap: 3px;
   padding: 3px 6px !important;
+  border: 1px solid color-mix(in srgb, var(--text-secondary) 22%, var(--border-color));
+  border-radius: 999px;
   background: transparent;
   color: var(--text-secondary);
   font-size: 0.66rem;

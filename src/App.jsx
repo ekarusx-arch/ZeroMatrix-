@@ -865,7 +865,7 @@ function App() {
         <div className="matrix-shell" style={{ background: 'var(--bg-color)', display: 'flex', justifyContent: 'center', height: '100vh' }}>
           <div className="matrix-workspace" style={{ display: 'flex', width: '100%', maxWidth: '1760px', padding: '24px', gap: '24px' }}>
           {/* Sidebar - Brain Dump */}
-          <div className="matrix-sidebar" style={{ display: 'flex', flexDirection: 'column', width: 'clamp(760px, 52vw, 920px)', flex: '0 1 clamp(760px, 52vw, 920px)', minWidth: '720px' }}>
+          <div className="matrix-sidebar" style={{ display: 'flex', flexDirection: 'column', width: 'clamp(660px, 47vw, 820px)', flex: '0 1 clamp(660px, 47vw, 820px)', minWidth: '660px' }}>
           {/* Header */}
           <div className="matrix-app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h1 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
@@ -874,30 +874,34 @@ function App() {
               </div>
               ZeroMatrix
             </h1>
-            <div className="matrix-header-actions matrix-mobile-tools" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <button
-                type="button"
-                onClick={handleImportBrainDump}
-                disabled={isImportingBrainDump}
-                className="glass-button matrix-import-button"
-                title={`${selectedDate} ZeroSlate 브레인 덤프 가져오기`}
-              >
-                <Download size={14} /> {isImportingBrainDump ? '가져오는 중' : 'Slate'}
-              </button>
+            <div className="matrix-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className="matrix-account-pill matrix-header-account" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
+                <div className="matrix-account-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success-color)' }} />
+                <span className="matrix-account-email" title={session.user.email} style={{ fontSize: '0.85rem', fontWeight: 560, color: 'var(--text-color)' }}>계정</span>
+                <button
+                  className="matrix-logout-button"
+                  onClick={() => supabase.auth.signOut()}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', marginLeft: '4px', opacity: 0.7 }}
+                  title="로그아웃"
+                >
+                  <LogOut size={14} />
+                </button>
+              </div>
               <select
                 value={theme}
                 onChange={(e) => {setTheme(e.target.value); localStorage.setItem('zeromatrix-theme', e.target.value); document.documentElement.setAttribute('data-theme', e.target.value);}}
-                className="theme-select"
+                className="theme-select matrix-theme-select matrix-header-theme-select"
+                title="배경 테마"
                 style={{ width: 'auto' }}
               >
-                <option value="light">☀️ Light</option>
-                <option value="midnight">🌙 Midnight</option>
-                <option value="ocean">🌊 Ocean</option>
-                <option value="sunset">🌇 Sunset</option>
-                <option value="forest">🌲 Forest</option>
-                <option value="lavender">💜 Lavender</option>
-                <option value="rose">🌹 Rose</option>
-                <option value="coffee">☕ Coffee</option>
+                <option value="light">Light</option>
+                <option value="midnight">Midnight</option>
+                <option value="ocean">Ocean</option>
+                <option value="sunset">Sunset</option>
+                <option value="forest">Forest</option>
+                <option value="lavender">Lavender</option>
+                <option value="rose">Rose</option>
+                <option value="coffee">Coffee</option>
               </select>
             </div>
           </div>
@@ -1122,18 +1126,6 @@ function App() {
               <strong>{slateSource.mobileTitle} {slateReadyCount}/{slateCandidateCount}</strong>
             </p>
             <div className="matrix-toolbar-cluster" style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-              <div className="matrix-account-pill" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
-                <div className="matrix-account-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success-color)' }} />
-                <span className="matrix-account-email" title={session.user.email} style={{ fontSize: '0.85rem', fontWeight: 560, color: 'var(--text-color)' }}>계정</span>
-                <button
-                  className="matrix-logout-button"
-                  onClick={() => supabase.auth.signOut()}
-                  style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', marginLeft: '4px', opacity: 0.7 }}
-                  title="로그아웃"
-                >
-                  <LogOut size={14} />
-                </button>
-              </div>
               <div className="matrix-toolbar-tools">
                 <button
                   type="button"
@@ -1145,25 +1137,6 @@ function App() {
                   <Download size={14} />
                   <span>{isImportingBrainDump ? '가져오는 중' : 'Slate 덤프'}</span>
                 </button>
-                <select
-                  value={theme}
-                  onChange={(e) => {
-                    setTheme(e.target.value);
-                    localStorage.setItem('zeromatrix-theme', e.target.value);
-                    document.documentElement.setAttribute('data-theme', e.target.value);
-                  }}
-                  className="theme-select matrix-theme-select"
-                  title="배경 테마"
-                >
-                  <option value="light">Light</option>
-                  <option value="midnight">Midnight</option>
-                  <option value="ocean">Ocean</option>
-                  <option value="sunset">Sunset</option>
-                  <option value="forest">Forest</option>
-                  <option value="lavender">Lavender</option>
-                  <option value="rose">Rose</option>
-                  <option value="coffee">Coffee</option>
-                </select>
               </div>
               <label className="matrix-send-source">
                 <span>보낼 목록</span>
