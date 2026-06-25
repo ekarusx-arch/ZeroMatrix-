@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/refs -- @hello-pangea/dnd exposes render-prop refs that React 19 lint treats as ref reads. */
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { ArrowLeft, GripVertical, X, Clock, FileText, Plus, LogOut, AlertCircle, Download, Tag as TagIcon } from 'lucide-react';
+import { ArrowLeft, GripVertical, X, Clock, FileText, Plus, LogOut, AlertCircle, Download, HelpCircle, Tag as TagIcon } from 'lucide-react';
 import Auth from './components/Auth';
 import { TagFilterBar, TagSelectionRow } from './components/TagControls';
 import TimeBudget from './components/TimeBudget';
@@ -85,6 +85,51 @@ function SuiteBackButton({ href }) {
       <ArrowLeft size={15} />
       ZeroSlate
     </a>
+  );
+}
+
+function MatrixGuideModal({ onClose }) {
+  return (
+    <div className="matrix-guide-backdrop" onClick={onClose} role="presentation">
+      <section
+        className="matrix-guide-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="matrix-guide-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="matrix-guide-header">
+          <div>
+            <p>ZeroMatrix Guide</p>
+            <h2 id="matrix-guide-title">사용법</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="사용법 닫기">
+            <X size={17} />
+          </button>
+        </div>
+        <ol className="matrix-guide-steps">
+          <li>
+            <strong>브레인 덤프</strong>
+            <span>떠오른 일을 먼저 적습니다. 입력 전에 시간과 태그를 선택하거나, 문장에 #태그와 [30m]를 함께 적어도 됩니다.</span>
+          </li>
+          <li>
+            <strong>4칸 분류</strong>
+            <span>목록을 드래그해서 중요+긴급, 중요, 긴급, 제거로 나눕니다. 모바일에서는 항목을 선택한 뒤 보낼 섹션을 누릅니다.</span>
+          </li>
+          <li>
+            <strong>태그와 시간 정리</strong>
+            <span>목록의 색점은 태그를 빠르게 바꿉니다. 시간 버튼은 미정, 15m, 30m, 1h, 2h 순서로 바뀝니다.</span>
+          </li>
+          <li>
+            <strong>ZeroSlate로 보내기</strong>
+            <span>보낼 목록을 고른 뒤 Slate로 보냅니다. ZeroSlate Top 3가 비어 있을 때만 가져갈 수 있습니다.</span>
+          </li>
+        </ol>
+        <div className="matrix-guide-note">
+          Slate 덤프 버튼은 ZeroSlate 브레인 덤프를 Matrix로 가져올 때 사용합니다.
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -352,6 +397,7 @@ function App() {
   const [isSending, setIsSending] = useState(false);
   const [crushedTaskId, setCrushedTaskId] = useState(null);
   const [slateSourceId, setSlateSourceId] = useState('q1');
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
 
   const [selectedTime, setSelectedTime] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);
@@ -443,6 +489,15 @@ function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (!isGuideOpen) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setIsGuideOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isGuideOpen]);
 
   useEffect(() => {
     tagPaletteRef.current = tagPalette;
@@ -956,6 +1011,15 @@ function App() {
                 <span style={{ fontSize: '14px' }}>Z</span>
               </div>
               ZeroMatrix
+              <button
+                type="button"
+                className="matrix-guide-trigger"
+                onClick={() => setIsGuideOpen(true)}
+                aria-haspopup="dialog"
+              >
+                <HelpCircle size={14} />
+                <span>사용법</span>
+              </button>
             </h1>
             <div className="matrix-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div className="matrix-account-pill matrix-header-account" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
@@ -1343,6 +1407,8 @@ function App() {
           `}</style>
         </div>
       )}
+
+      {isGuideOpen && <MatrixGuideModal onClose={() => setIsGuideOpen(false)} />}
 
     </>
   );
