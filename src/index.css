@@ -1,20 +1,25 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
 
 :root, [data-theme="light"] {
-  --bg-color: #f1f5f9;
-  --text-color: #0f172a;
-  --text-secondary: #64748b;
+  --bg-color: #f0f2f7;
+  --text-color: #18181b;
+  --text-secondary: #71717a;
   --panel-bg: #ffffff;
   --card-bg: #ffffff;
-  --border-color: #e2e8f0;
-  --grid-color: rgba(15, 23, 42, 0.04);
-  
+  --border-color: #e2e5ed;
+  --grid-color: rgba(99, 102, 241, 0.045);
   --danger-color: #ef4444;
   --success-color: #10b981;
-  --accent-color: #6366f1;
-  --accent-light: #e0e7ff;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.05);
+  --accent-color: #2563eb;
+  --accent-light: #eff6ff;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 12px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 10px 28px rgba(15, 23, 42, 0.10);
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 16px;
+  --panel-shadow: 0 2px 12px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --soft-surface: #f4f4f5;
 }
 
 [data-theme="midnight"] {
@@ -101,35 +106,6 @@
   --accent-light: #fef3c7;
 }
 
-:root,
-[data-theme="light"],
-[data-theme="ocean"],
-[data-theme="sunset"],
-[data-theme="forest"],
-[data-theme="lavender"],
-[data-theme="rose"],
-[data-theme="coffee"] {
-  --bg-color: #f0f2f7;
-  --text-color: #18181b;
-  --text-secondary: #71717a;
-  --panel-bg: #ffffff;
-  --card-bg: #ffffff;
-  --border-color: #e2e5ed;
-  --grid-color: rgba(99, 102, 241, 0.045);
-  --danger-color: #ef4444;
-  --success-color: #10b981;
-  --accent-color: #2563eb;
-  --accent-light: #eff6ff;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 12px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 10px 28px rgba(15, 23, 42, 0.10);
-  --radius-sm: 8px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 16px;
-  --panel-shadow: 0 2px 12px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
-  --soft-surface: #f4f4f5;
-}
-
 [data-theme="midnight"] {
   --bg-color: #11110f;
   --panel-bg: #191916;
@@ -159,7 +135,7 @@
 }
 
 body {
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background:
     radial-gradient(ellipse 80% 50% at 20% -10%, rgba(99, 102, 241, 0.06) 0%, transparent 60%),
     radial-gradient(ellipse 60% 40% at 80% 10%, rgba(59, 130, 246, 0.05) 0%, transparent 55%),
@@ -250,7 +226,7 @@ body {
   color: var(--text-color, #111827);
   text-decoration: none;
   font-size: 0.85rem;
-  font-weight: 800;
+  font-weight: 650;
   line-height: 1;
   white-space: nowrap;
   box-shadow: var(--shadow-sm);
@@ -268,7 +244,7 @@ body {
 }
 
 .matrix-workspace {
-  gap: 16px !important;
+  gap: 18px !important;
   padding: calc(env(safe-area-inset-top, 0px) + 66px) 14px 18px !important;
 }
 
@@ -321,7 +297,7 @@ body {
   background: transparent !important;
   color: var(--text-color) !important;
   font-size: 0.82rem !important;
-  font-weight: 800 !important;
+  font-weight: 620 !important;
   white-space: nowrap;
   box-shadow: none !important;
   padding: 0 10px !important;
@@ -342,7 +318,7 @@ body {
   min-height: 34px;
   padding: 0 34px 0 12px;
   font-size: 0.82rem;
-  font-weight: 800;
+  font-weight: 620;
   min-width: 126px;
   border-color: transparent;
   background-color: transparent;
@@ -356,7 +332,7 @@ body {
   color: var(--text-secondary);
   padding: 8px 10px;
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 620;
   line-height: 1.35;
 }
 
@@ -392,8 +368,8 @@ body {
 
 .matrix-dump-layout {
   display: grid;
-  grid-template-columns: minmax(246px, 0.58fr) minmax(420px, 1.42fr);
-  gap: 12px;
+  grid-template-columns: minmax(300px, 0.68fr) minmax(430px, 1.32fr);
+  gap: 18px;
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -406,7 +382,7 @@ body {
 }
 
 .matrix-dump-controls .matrix-input-panel {
-  margin-bottom: 12px !important;
+  margin-bottom: 14px !important;
 }
 
 .matrix-dump-layout .matrix-sidebar-list {
@@ -439,14 +415,14 @@ body {
 
 .matrix-list-heading-main strong {
   font-size: 0.94rem;
-  font-weight: 900;
+  font-weight: 720;
   letter-spacing: 0;
 }
 
 .matrix-list-heading-main > span:last-child {
   color: var(--text-secondary);
   font-size: 0.78rem;
-  font-weight: 750;
+  font-weight: 560;
 }
 
 .matrix-list-icon {
@@ -530,14 +506,14 @@ body {
 .matrix-toolbar-summary span {
   color: var(--text-color);
   font-size: 0.88rem;
-  font-weight: 900;
+  font-weight: 720;
   white-space: nowrap;
 }
 
 .matrix-toolbar-summary strong {
   color: var(--text-secondary);
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 560;
   white-space: nowrap;
 }
 
@@ -597,7 +573,7 @@ body {
   color: #ffffff;
   cursor: pointer;
   font-size: 0.84rem;
-  font-weight: 900;
+  font-weight: 740;
   justify-content: center;
   line-height: 1 !important;
   white-space: nowrap;
@@ -664,6 +640,10 @@ body {
   box-shadow: none !important;
 }
 
+.matrix-dump-stack .matrix-task-card::before {
+  display: none;
+}
+
 .matrix-task-card::before {
   content: "";
   position: absolute;
@@ -723,7 +703,7 @@ body {
 
 .matrix-task-title {
   color: var(--text-color);
-  font-weight: 720 !important;
+  font-weight: 580 !important;
   line-height: 1.45;
   word-break: keep-all !important;
   overflow-wrap: anywhere;
@@ -732,7 +712,7 @@ body {
 .matrix-task-inline-tag {
   color: color-mix(in srgb, var(--tag-color) 72%, var(--text-secondary));
   font-size: 0.84rem;
-  font-weight: 760;
+  font-weight: 560;
   line-height: 1.45;
   white-space: nowrap;
 }
@@ -741,7 +721,7 @@ body {
   border: 1px solid var(--border-color);
   background: var(--soft-surface) !important;
   color: var(--text-secondary) !important;
-  font-weight: 800;
+  font-weight: 620;
 }
 
 .matrix-task-chip.is-time {
@@ -811,7 +791,8 @@ body {
   }
 
   .matrix-dump-layout {
-    grid-template-columns: minmax(300px, 0.72fr) minmax(360px, 1fr);
+    grid-template-columns: minmax(320px, 0.72fr) minmax(420px, 1fr);
+    gap: 16px;
   }
 }
 

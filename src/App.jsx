@@ -789,10 +789,10 @@ function App() {
         <div className="matrix-shell" style={{ background: 'var(--bg-color)', display: 'flex', justifyContent: 'center', height: '100vh' }}>
           <div className="matrix-workspace" style={{ display: 'flex', width: '100%', maxWidth: '1760px', padding: '24px', gap: '24px' }}>
           {/* Sidebar - Brain Dump */}
-          <div className="matrix-sidebar" style={{ display: 'flex', flexDirection: 'column', width: 'clamp(720px, 50vw, 860px)', flex: '0 1 clamp(720px, 50vw, 860px)', minWidth: '680px' }}>
+          <div className="matrix-sidebar" style={{ display: 'flex', flexDirection: 'column', width: 'clamp(760px, 52vw, 920px)', flex: '0 1 clamp(760px, 52vw, 920px)', minWidth: '720px' }}>
           {/* Header */}
           <div className="matrix-app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h1 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            <h1 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
               <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'var(--accent-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
                 <span style={{ fontSize: '14px' }}>Z</span>
               </div>
@@ -830,7 +830,7 @@ function App() {
             <div className="matrix-dump-controls">
               {/* Input Panel */}
               <div className="glass-panel matrix-input-panel" style={{ padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column' }}>
-                <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-color)' }}>
+                <h2 style={{ fontSize: '1rem', fontWeight: 650, margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-color)' }}>
                   <span style={{ color: 'var(--accent-color)' }}>⚡️</span> Brain Dump
                 </h2>
 
