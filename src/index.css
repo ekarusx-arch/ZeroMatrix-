@@ -1227,7 +1227,7 @@ body {
 
   .mobile-task-actions {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
     border-top: 1px solid var(--border-color);
   }
 

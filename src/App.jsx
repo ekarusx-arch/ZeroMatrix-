@@ -1,13 +1,13 @@
 /* eslint-disable react-hooks/refs -- @hello-pangea/dnd exposes render-prop refs that React 19 lint treats as ref reads. */
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { ArrowLeft, GripVertical, X, Clock, FileText, Plus, LogOut, AlertCircle, Download } from 'lucide-react';
+import { ArrowLeft, GripVertical, X, Clock, FileText, Plus, LogOut, AlertCircle, Download, Tag as TagIcon } from 'lucide-react';
 import Auth from './components/Auth';
 import { TagFilterBar, TagSelectionRow } from './components/TagControls';
 import TimeBudget from './components/TimeBudget';
 import { supabase } from './lib/supabaseClient';
 import { isMatrixPreview, previewSession, previewTagPalette, previewTasks } from './lib/devPreview';
-import { TAG_COLOR_OPTIONS, getTagColor, mergeTagPalette, normalizeTagPalette, toSlateTagPalette } from './lib/tagPalette';
+import { getTagColor, mergeTagPalette, normalizeTagPalette, toSlateTagPalette } from './lib/tagPalette';
 import { getNextTimeEstimate } from './lib/timeBudget';
 
 const QUADRANTS = [
@@ -116,7 +116,7 @@ function formatTime(minutes) {
   return `${m}m`;
 }
 
-function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskContent, updateTaskNote, updateTaskTime, activeTag, isCrushed, tagColor, onTagColorCycle }) {
+function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskContent, updateTaskNote, updateTaskTime, activeTag, isCrushed, tagColor, onTaskTagCycle, canCycleTags }) {
   const isDragging = isClone || snapshot.isDragging;
   const [isFlipped, setIsFlipped] = useState(false);
   const [note, setNote] = useState(task.notes || '');
@@ -125,6 +125,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskCon
   const sectionColor = getMatrixSection(task.quadrant).color;
   const primaryTag = task.tags?.[0] || null;
   const primaryTagColor = primaryTag ? tagColor(primaryTag) : sectionColor;
+  const canCycleTaskTag = Boolean(primaryTag && canCycleTags && !isClone);
   const taskMinutes = task.timeEstimate || task.time_estimate || 0;
 
   const isFilteredOut = activeTag && !(task.tags || []).includes(activeTag);
@@ -175,10 +176,10 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskCon
     }
   };
 
-  const handleTagColorCycle = (event) => {
+  const handleTaskTagCycle = (event) => {
     event.stopPropagation();
     if (!primaryTag || isDragging || isClone) return;
-    onTagColorCycle(primaryTag);
+    onTaskTagCycle(task.id);
   };
 
   if (isFlipped) {
@@ -257,15 +258,15 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskCon
       <div className="matrix-task-grip" {...provided.dragHandleProps} style={{ display: 'flex', alignItems: 'center', color: 'var(--border-color)', cursor: isDragging ? 'grabbing' : 'grab' }}>
         <GripVertical size={16} />
       </div>
-      {primaryTag ? (
+      {canCycleTaskTag ? (
         <button
           type="button"
           className="matrix-task-color-dot is-clickable"
           style={{ '--tag-color': primaryTagColor }}
-          onClick={handleTagColorCycle}
+          onClick={handleTaskTagCycle}
           onDoubleClick={(event) => event.stopPropagation()}
-          aria-label={`#${primaryTag} 태그 색상 변경`}
-          title={`#${primaryTag} 색상 변경`}
+          aria-label={`#${primaryTag} 태그 변경`}
+          title={`#${primaryTag} 태그 변경`}
         />
       ) : (
         <span className="matrix-task-color-dot" style={{ '--tag-color': primaryTagColor }} aria-hidden="true" />
@@ -620,11 +621,35 @@ function App() {
     if (synced) showImportNotice({ type: 'success', message: `#${tag} 색상을 ZeroSlate와 맞췄습니다.` });
   };
 
-  const handleTaskTagColorCycle = async (tag) => {
-    const currentColor = tagColor(tag).toLowerCase();
-    const currentIndex = TAG_COLOR_OPTIONS.findIndex((color) => color.toLowerCase() === currentColor);
-    const nextColor = TAG_COLOR_OPTIONS[(currentIndex + 1 + TAG_COLOR_OPTIONS.length) % TAG_COLOR_OPTIONS.length];
-    await handleTagColorChange(tag, nextColor);
+  const handleTaskTagCycle = async (id) => {
+    const target = tasks.find((task) => task.id === id);
+    const tagOptions = allTags.filter(Boolean);
+    if (!target || tagOptions.length === 0) return;
+
+    const currentTags = target.tags || [];
+    const currentPrimaryTag = currentTags[0] || null;
+    const currentIndex = tagOptions.indexOf(currentPrimaryTag);
+    if (currentPrimaryTag && tagOptions.length < 2) return;
+
+    const nextPrimaryTag = tagOptions[(currentIndex + 1 + tagOptions.length) % tagOptions.length];
+    const nextTags = [
+      nextPrimaryTag,
+      ...currentTags.slice(1).filter((tag) => tag !== nextPrimaryTag),
+    ];
+    const previousTasks = tasks;
+
+    setTasks((currentTasks) => currentTasks.map((task) => (
+      task.id === id ? { ...task, tags: nextTags } : task
+    )));
+
+    if (isMatrixPreview) return;
+
+    const { error } = await supabase.from('matrix_tasks').update({ tags: nextTags }).eq('id', id);
+    if (error) {
+      console.error('Error updating task tags', error);
+      setTasks(previousTasks);
+      showImportNotice({ type: 'error', message: '태그 변경을 저장하지 못해 이전 상태로 되돌렸습니다.' });
+    }
   };
 
   const handleCapacityChange = (minutes) => {
@@ -1015,7 +1040,7 @@ function App() {
                 renderClone={(provided, snapshot, rubric) => {
                   const task = tasks.find(t => t.id === rubric.draggableId);
                   if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
-                  return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} onTagColorCycle={handleTaskTagColorCycle} />;
+                  return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} canCycleTags={allTags.length > 1} />;
                 }}
               >
                 {(provided) => (
@@ -1027,7 +1052,7 @@ function App() {
                   >
                     {tasks.filter(t => t.quadrant === 'sidebar').map((task, index) => (
                       <Draggable key={task.id} draggableId={task.id} index={index}>
-                        {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} onTagColorCycle={handleTaskTagColorCycle} />}
+                        {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} canCycleTags={allTags.length > 1} />}
                       </Draggable>
                     ))}
                     {provided.placeholder}
@@ -1129,6 +1154,11 @@ function App() {
                           <button type="button" onClick={() => updateTaskTime(task.id)}>
                             <Clock size={13} /> {formatTime(taskMinutes) || '시간'}
                           </button>
+                          {(task.tags?.length > 0 && allTags.length > 1) && (
+                            <button type="button" onClick={() => handleTaskTagCycle(task.id)}>
+                              <TagIcon size={13} /> 태그
+                            </button>
+                          )}
                           <button type="button" onClick={() => removeTask(task.id)}>
                             <X size={13} /> 삭제
                           </button>
@@ -1215,7 +1245,7 @@ function App() {
                         renderClone={(provided, snapshot, rubric) => {
                           const task = tasks.find(t => t.id === rubric.draggableId);
                           if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
-                          return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} onTagColorCycle={handleTaskTagColorCycle} />;
+                          return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} canCycleTags={allTags.length > 1} />;
                         }}
                       >
                         {(provided, snapshot) => (
@@ -1237,7 +1267,7 @@ function App() {
                           >
                             {tasks.filter(t => t.quadrant === q.id).map((task, index) => (
                               <Draggable key={task.id} draggableId={task.id} index={index}>
-                                {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} onTagColorCycle={handleTaskTagColorCycle} />}
+                                {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} canCycleTags={allTags.length > 1} />}
                               </Draggable>
                             ))}
                             {provided.placeholder}
