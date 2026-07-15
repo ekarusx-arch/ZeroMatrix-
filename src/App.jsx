@@ -27,7 +27,48 @@ function getMatrixSection(sectionId) {
 }
 
 const ZERO_SLATE_URL = 'https://zeroslate.kr';
+const SUITE_AUTH_EXCHANGE_URL = 'https://zeroslate.kr/api/auth/suite/exchange';
 const MAX_SLATE_TASKS = 3;
+
+function getSuiteToken() {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('suiteToken');
+}
+
+function clearSuiteToken() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('suiteToken');
+  window.history.replaceState({}, document.title, url.toString());
+}
+
+async function connectSuiteSession() {
+  const token = getSuiteToken();
+  if (!token) return false;
+
+  try {
+    const response = await fetch(SUITE_AUTH_EXCHANGE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.access_token || !data.refresh_token) {
+      throw new Error(data.error || 'suite_auth_exchange_failed');
+    }
+
+    const { error } = await supabase.auth.setSession({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+    });
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.warn('ZeroSlate 세션 연결 실패:', error);
+    return false;
+  } finally {
+    clearSuiteToken();
+  }
+}
 
 function getSafeReturnUrl(rawUrl) {
   if (!rawUrl) return ZERO_SLATE_URL;
@@ -386,6 +427,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskCon
 
 function App() {
   const [session, setSession] = useState(() => isMatrixPreview ? previewSession : null);
+  const [authReady, setAuthReady] = useState(isMatrixPreview);
   const [tasks, setTasks] = useState(() => isMatrixPreview ? previewTasks : []);
   const [newTask, setNewTask] = useState('');
   const [draggingSourceId, setDraggingSourceId] = useState(null);
@@ -542,13 +584,6 @@ function App() {
 
   useEffect(() => {
     if (isMatrixPreview) return undefined;
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) {
-        fetchTasks(session.user.id);
-        fetchTagPalette(session.user.id);
-      }
-    });
 
     const {
       data: { subscription },
@@ -563,7 +598,24 @@ function App() {
       }
     });
 
-    return () => subscription.unsubscribe();
+    let mounted = true;
+    const initializeAuth = async () => {
+      await connectSuiteSession();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!mounted) return;
+      setSession(session);
+      if (session) {
+        fetchTasks(session.user.id);
+        fetchTagPalette(session.user.id);
+      }
+      setAuthReady(true);
+    };
+    void initializeAuth();
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, [fetchTagPalette, fetchTasks]);
 
   useEffect(() => {
@@ -986,6 +1038,17 @@ function App() {
       window.location.assign(buildSlateImportUrl(todayTasks));
     }, slateCandidates.length > MAX_SLATE_TASKS ? 1200 : 800);
   };
+
+  if (!authReady) {
+    return (
+      <div className="matrix-auth-loading" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: '24px', background: 'var(--bg-color)', color: 'var(--text-color)' }}>
+        <div className="glass-panel" style={{ padding: '28px', textAlign: 'center' }}>
+          <div className="matrix-auth-spinner" />
+          ZeroSlate 세션 연결 중...
+        </div>
+      </div>
+    );
+  }
 
   if (!session) {
     return (
