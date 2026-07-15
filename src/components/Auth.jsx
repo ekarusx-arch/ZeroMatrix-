@@ -133,6 +133,10 @@ export default function Auth() {
           G&nbsp;&nbsp;Google로 로그인
         </button>
 
+        <p style={{ color: 'var(--text-secondary)', margin: '-8px 0 0', fontSize: '0.72rem', lineHeight: 1.45 }}>
+          Google 로그인은 처음이면 계정이 자동으로 만들어질 수 있습니다. ZeroMatrix는 ZeroSlate Pro 권한이 있는 계정만 이용할 수 있습니다.
+        </p>
+
         {message && <p style={{ fontSize: '0.85rem', color: message.includes('성공') ? 'var(--success-color)' : 'var(--danger-color)', marginTop: '10px' }}>{message}</p>}
       </div>
     </div>

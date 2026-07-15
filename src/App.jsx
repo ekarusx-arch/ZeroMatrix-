@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/refs -- @hello-pangea/dnd exposes render-prop refs that React 19 lint treats as ref reads. */
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { ArrowLeft, GripVertical, X, Clock, FileText, Plus, LogOut, AlertCircle, Download, HelpCircle, Tag as TagIcon } from 'lucide-react';
+import { ArrowLeft, GripVertical, X, Clock, FileText, Plus, LogOut, AlertCircle, Download, HelpCircle, Tag as TagIcon, Lock } from 'lucide-react';
 import Auth from './components/Auth';
 import { TagFilterBar, TagSelectionRow } from './components/TagControls';
 import TimeBudget from './components/TimeBudget';
@@ -9,6 +9,7 @@ import { supabase } from './lib/supabaseClient';
 import { isMatrixPreview, previewSession, previewTagPalette, previewTasks } from './lib/devPreview';
 import { getTagColor, mergeTagPalette, normalizeTagPalette, toSlateTagPalette } from './lib/tagPalette';
 import { getNextTimeEstimate } from './lib/timeBudget';
+import { getProAccess } from './lib/proAccess';
 
 const QUADRANTS = [
   { id: 'q1', title: '중요하고 긴급함 (Do First)', mobileTitle: '중요+긴급', color: 'var(--danger-color)' },
@@ -168,6 +169,27 @@ function MatrixGuideModal({ onClose }) {
         </ol>
         <div className="matrix-guide-note">
           Slate 덤프 버튼은 ZeroSlate 브레인 덤프를 Matrix로 가져올 때 사용합니다.
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function MatrixProLock({ returnUrl, accountLabel, onSignOut }) {
+  const pricingUrl = new URL('/pricing', returnUrl).toString();
+
+  return (
+    <div className="matrix-pro-lock-page">
+      <section className="matrix-pro-lock-panel" role="status" aria-live="polite">
+        <div className="matrix-pro-lock-icon"><Lock size={24} /></div>
+        <p className="matrix-pro-lock-eyebrow">ZeroSlate Pro</p>
+        <h1>ZeroMatrix는 Pro 기능입니다</h1>
+        <p className="matrix-pro-lock-copy">
+          {accountLabel} 계정은 로그인되어 있지만 아직 Pro 권한이 없습니다. ZeroSlate에서 Pro 플랜을 확인한 뒤 다시 들어와 주세요.
+        </p>
+        <div className="matrix-pro-lock-actions">
+          <a className="matrix-pro-lock-primary" href={pricingUrl}>Pro 플랜 확인</a>
+          <button type="button" className="matrix-pro-lock-secondary" onClick={onSignOut}>로그아웃</button>
         </div>
       </section>
     </div>
@@ -428,6 +450,8 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskCon
 function App() {
   const [session, setSession] = useState(() => isMatrixPreview ? previewSession : null);
   const [authReady, setAuthReady] = useState(isMatrixPreview);
+  const [planReady, setPlanReady] = useState(isMatrixPreview);
+  const [proAccess, setProAccess] = useState(() => isMatrixPreview ? { isPro: true, plan: 'pro', status: 'preview' } : null);
   const [tasks, setTasks] = useState(() => isMatrixPreview ? previewTasks : []);
   const [newTask, setNewTask] = useState('');
   const [draggingSourceId, setDraggingSourceId] = useState(null);
@@ -585,29 +609,48 @@ function App() {
   useEffect(() => {
     if (isMatrixPreview) return undefined;
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) {
-        fetchTasks(session.user.id);
-        fetchTagPalette(session.user.id);
+    let mounted = true;
+    const loadSessionData = async (currentSession) => {
+      if (!currentSession) {
+        setProAccess({ isPro: false, plan: 'free', status: 'unauthenticated' });
+        setTasks([]);
+        setTagPalette([]);
+        setPlanReady(true);
+        return;
+      }
+
+      setPlanReady(false);
+      const access = await getProAccess(currentSession.user);
+
+      if (access.isPro) {
+        await Promise.all([
+          fetchTasks(currentSession.user.id),
+          fetchTagPalette(currentSession.user.id),
+        ]);
       } else {
         setTasks([]);
         setTagPalette([]);
       }
+
+      if (!mounted) return;
+      setProAccess(access);
+      setPlanReady(true);
+    };
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      void loadSessionData(session);
     });
 
-    let mounted = true;
     const initializeAuth = async () => {
       await connectSuiteSession();
       const { data: { session } } = await supabase.auth.getSession();
       if (!mounted) return;
       setSession(session);
-      if (session) {
-        fetchTasks(session.user.id);
-        fetchTagPalette(session.user.id);
-      }
+      await loadSessionData(session);
+      if (!mounted) return;
       setAuthReady(true);
     };
     void initializeAuth();
@@ -1050,11 +1093,35 @@ function App() {
     );
   }
 
+  if (session && !planReady) {
+    return (
+      <div className="matrix-auth-loading" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: '24px', background: 'var(--bg-color)', color: 'var(--text-color)' }}>
+        <div className="glass-panel" style={{ padding: '28px', textAlign: 'center' }}>
+          <div className="matrix-auth-spinner" />
+          ZeroSlate Pro 권한 확인 중...
+        </div>
+      </div>
+    );
+  }
+
   if (!session) {
     return (
       <>
         <SuiteBackButton href={returnUrl} />
         <Auth />
+      </>
+    );
+  }
+
+  if (!proAccess?.isPro) {
+    return (
+      <>
+        <SuiteBackButton href={returnUrl} />
+        <MatrixProLock
+          returnUrl={returnUrl}
+          accountLabel={accountLabel}
+          onSignOut={() => supabase.auth.signOut()}
+        />
       </>
     );
   }

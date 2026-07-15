@@ -234,6 +234,106 @@ body {
   -webkit-backdrop-filter: blur(14px);
 }
 
+.matrix-pro-lock-page {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 96px 24px 32px;
+  background: var(--bg-color);
+  color: var(--text-color);
+}
+
+.matrix-pro-lock-panel {
+  width: min(460px, 100%);
+  padding: 32px;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 22%, var(--border-color));
+  border-radius: var(--radius-xl);
+  background: var(--panel-bg);
+  box-shadow: var(--panel-shadow);
+  text-align: center;
+}
+
+.matrix-pro-lock-icon {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 16px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--accent-color) 12%, var(--card-bg));
+  color: var(--accent-color);
+}
+
+.matrix-pro-lock-eyebrow {
+  margin: 0 0 7px;
+  color: var(--accent-color);
+  font-size: 0.74rem;
+  font-weight: 780;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.matrix-pro-lock-panel h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
+.matrix-pro-lock-copy {
+  margin: 12px 0 22px;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.matrix-pro-lock-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.matrix-pro-lock-primary,
+.matrix-pro-lock-secondary {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 15px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 680;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.matrix-pro-lock-primary {
+  border: 1px solid var(--accent-color);
+  background: var(--accent-color);
+  color: #fff;
+}
+
+.matrix-pro-lock-secondary {
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  color: var(--text-color);
+}
+
+@media (max-width: 560px) {
+  .matrix-pro-lock-page {
+    padding: 82px 16px 24px;
+  }
+
+  .matrix-pro-lock-panel {
+    padding: 26px 20px;
+  }
+
+  .matrix-pro-lock-actions {
+    flex-direction: column;
+  }
+}
+
 .matrix-shell {
   overflow: hidden;
   background:
