@@ -1,9 +1,14 @@
 /* eslint-disable react-hooks/refs -- @hello-pangea/dnd exposes render-prop refs that React 19 lint treats as ref reads. */
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { ArrowLeft, GripVertical, X, Clock, Tag, FileText, Plus, LogOut, Activity, AlertCircle, Download } from 'lucide-react';
+import { ArrowLeft, GripVertical, X, Clock, FileText, Plus, LogOut, AlertCircle, Download, HelpCircle, Tag as TagIcon } from 'lucide-react';
 import Auth from './components/Auth';
+import { TagFilterBar, TagSelectionRow } from './components/TagControls';
+import TimeBudget from './components/TimeBudget';
 import { supabase } from './lib/supabaseClient';
+import { isMatrixPreview, previewSession, previewTagPalette, previewTasks } from './lib/devPreview';
+import { getTagColor, mergeTagPalette, normalizeTagPalette, toSlateTagPalette } from './lib/tagPalette';
+import { getNextTimeEstimate } from './lib/timeBudget';
 
 const QUADRANTS = [
   { id: 'q1', title: '중요하고 긴급함 (Do First)', mobileTitle: '중요+긴급', color: 'var(--danger-color)' },
@@ -16,6 +21,10 @@ const MATRIX_SECTIONS = [
   { id: 'sidebar', title: '브레인 덤프', mobileTitle: '덤프', color: 'var(--accent-color)' },
   ...QUADRANTS,
 ];
+
+function getMatrixSection(sectionId) {
+  return MATRIX_SECTIONS.find((section) => section.id === sectionId) || MATRIX_SECTIONS[0];
+}
 
 const ZERO_SLATE_URL = 'https://zeroslate.kr';
 const MAX_SLATE_TASKS = 3;
@@ -55,6 +64,13 @@ function getInitialSuiteDate() {
   return /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : getLocalDateKey();
 }
 
+function getAccountDisplayName(user) {
+  const metadata = user?.user_metadata || {};
+  const name = metadata.full_name || metadata.name || metadata.preferred_username;
+  if (name) return String(name).trim();
+  return user?.email?.split('@')[0] || '계정';
+}
+
 function normalizeTaskContent(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
@@ -69,6 +85,51 @@ function SuiteBackButton({ href }) {
       <ArrowLeft size={15} />
       ZeroSlate
     </a>
+  );
+}
+
+function MatrixGuideModal({ onClose }) {
+  return (
+    <div className="matrix-guide-backdrop" onClick={onClose} role="presentation">
+      <section
+        className="matrix-guide-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="matrix-guide-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="matrix-guide-header">
+          <div>
+            <p>ZeroMatrix Guide</p>
+            <h2 id="matrix-guide-title">사용법</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="사용법 닫기">
+            <X size={17} />
+          </button>
+        </div>
+        <ol className="matrix-guide-steps">
+          <li>
+            <strong>브레인 덤프</strong>
+            <span>떠오른 일을 먼저 적습니다. 입력 전에 시간과 태그를 선택하거나, 문장에 #태그와 [30m]를 함께 적어도 됩니다.</span>
+          </li>
+          <li>
+            <strong>4칸 분류</strong>
+            <span>목록을 드래그해서 중요+긴급, 중요, 긴급, 제거로 나눕니다. 모바일에서는 항목을 선택한 뒤 보낼 섹션을 누릅니다.</span>
+          </li>
+          <li>
+            <strong>태그와 시간 정리</strong>
+            <span>목록의 색점은 태그를 빠르게 바꿉니다. 시간 버튼은 미정, 15m, 30m, 1h, 2h 순서로 바뀝니다.</span>
+          </li>
+          <li>
+            <strong>ZeroSlate로 보내기</strong>
+            <span>보낼 목록을 고른 뒤 Slate로 보냅니다. ZeroSlate Top 3가 비어 있을 때만 가져갈 수 있습니다.</span>
+          </li>
+        </ol>
+        <div className="matrix-guide-note">
+          Slate 덤프 버튼은 ZeroSlate 브레인 덤프를 Matrix로 가져올 때 사용합니다.
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -107,10 +168,17 @@ function formatTime(minutes) {
   return `${m}m`;
 }
 
-function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNote, activeTag, isCrushed, openZenMode }) {
+function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskContent, updateTaskNote, updateTaskTime, activeTag, isCrushed, tagColor, onTaskTagCycle, tagOptionCount }) {
   const isDragging = isClone || snapshot.isDragging;
   const [isFlipped, setIsFlipped] = useState(false);
   const [note, setNote] = useState(task.notes || '');
+  const [isEditingContent, setIsEditingContent] = useState(false);
+  const [contentDraft, setContentDraft] = useState(task.content || '');
+  const sectionColor = getMatrixSection(task.quadrant).color;
+  const primaryTag = task.tags?.[0] || null;
+  const primaryTagColor = primaryTag ? tagColor(primaryTag) : sectionColor;
+  const canCycleTaskTag = Boolean(!isClone && (primaryTag ? tagOptionCount > 1 : tagOptionCount > 0));
+  const taskMinutes = task.timeEstimate || task.time_estimate || 0;
 
   const isFilteredOut = activeTag && !(task.tags || []).includes(activeTag);
   const opacity = (isFilteredOut && !isDragging) ? 0.3 : 1;
@@ -125,6 +193,45 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
     if (e) e.stopPropagation();
     updateTaskNote(task.id, note);
     setIsFlipped(false);
+  };
+
+  const startContentEdit = (event) => {
+    event.stopPropagation();
+    if (isDragging || isClone) return;
+    setContentDraft(task.content || '');
+    setIsEditingContent(true);
+  };
+
+  const saveContentEdit = async () => {
+    const nextContent = contentDraft.trim().replace(/\s+/g, ' ');
+    if (!nextContent) {
+      setContentDraft(task.content || '');
+      setIsEditingContent(false);
+      return;
+    }
+
+    setIsEditingContent(false);
+    if (nextContent !== task.content) {
+      await updateTaskContent(task.id, nextContent);
+    }
+  };
+
+  const handleContentKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveContentEdit();
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setContentDraft(task.content || '');
+      setIsEditingContent(false);
+    }
+  };
+
+  const handleTaskTagCycle = (event) => {
+    event.stopPropagation();
+    if (!canCycleTaskTag || isDragging) return;
+    onTaskTagCycle(task.id);
   };
 
   if (isFlipped) {
@@ -145,6 +252,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
           color: 'var(--text-color)',
           textAlign: 'left',
           margin: 0,
+          '--section-color': sectionColor,
           transition: [provided.draggableProps.style?.transition, 'opacity 0.2s', 'background 0.2s', 'box-shadow 0.2s'].filter(Boolean).join(', ')
         }}
       >
@@ -164,7 +272,7 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
           onChange={(e) => setNote(e.target.value)}
           placeholder="여기에 세부 사항이나 메모를 적어주세요..."
         />
-        <button 
+        <button
           onClick={handleSaveNote}
           style={{ background: 'var(--accent-color)', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}
         >
@@ -195,41 +303,80 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
         margin: '0 0 8px 0',
         opacity: opacity,
         borderRadius: '8px',
+        '--section-color': sectionColor,
         transition: [provided.draggableProps.style?.transition, 'opacity 0.2s', 'background 0.2s', 'box-shadow 0.2s'].filter(Boolean).join(', ')
       }}
     >
       <div className="matrix-task-grip" {...provided.dragHandleProps} style={{ display: 'flex', alignItems: 'center', color: 'var(--border-color)', cursor: isDragging ? 'grabbing' : 'grab' }}>
         <GripVertical size={16} />
       </div>
+      {canCycleTaskTag ? (
+        <button
+          type="button"
+          className="matrix-task-color-dot is-clickable"
+          style={{ '--tag-color': primaryTagColor }}
+          onClick={handleTaskTagCycle}
+          onDoubleClick={(event) => event.stopPropagation()}
+          aria-label={primaryTag ? `#${primaryTag} 태그 변경` : '태그 적용'}
+          title={primaryTag ? `#${primaryTag} 태그 변경` : '태그 적용'}
+        />
+      ) : (
+        <span className="matrix-task-color-dot" style={{ '--tag-color': primaryTagColor }} aria-hidden="true" />
+      )}
 
       <div className="matrix-task-body" style={{display: 'flex', flexDirection: 'column', gap: '4px', flex: 1}}>
-        <div className="matrix-task-title-row" style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-          <span className="matrix-task-title" style={{wordBreak: 'break-all', fontSize: '0.9rem', fontWeight: 500}}>{task.content}</span>
-          {task.notes && <FileText size={12} color="var(--accent-color)" />}
-        </div>
-        {(task.timeEstimate > 0 || (task.tags && task.tags.length > 0)) && (
-          <div className="matrix-task-meta" style={{display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap'}}>
-            {task.timeEstimate > 0 && (
-              <span className="matrix-task-chip" style={{fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '3px', background: 'var(--bg-color)', color: 'var(--text-secondary)', padding: '2px 8px', borderRadius: '12px'}}>
-                <Clock size={10} /> {formatTime(task.timeEstimate)}
-              </span>
-            )}
+        {isEditingContent ? (
+          <input
+            autoFocus
+            className="matrix-task-edit-input"
+            value={contentDraft}
+            onBlur={saveContentEdit}
+            onChange={(event) => setContentDraft(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+            onKeyDown={handleContentKeyDown}
+          />
+        ) : (
+          <button
+            type="button"
+            className="matrix-task-title-button"
+            onClick={startContentEdit}
+            onDoubleClick={(event) => event.stopPropagation()}
+            title="클릭해서 내용 수정"
+          >
+            <span className="matrix-task-title" style={{wordBreak: 'break-all', fontSize: '0.9rem', fontWeight: 500}}>{task.content}</span>
             {task.tags?.map(tag => (
-              <span className="matrix-task-chip is-tag" key={tag} style={{fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '3px', background: 'var(--accent-light)', color: 'var(--accent-color)', padding: '2px 8px', borderRadius: '12px'}}>
-                <Tag size={10} /> {tag}
+              <span className="matrix-task-inline-tag" key={tag} style={{ '--tag-color': tagColor(tag) }}>
+                #{tag}
               </span>
             ))}
-          </div>
+            {task.notes && <FileText size={12} color="var(--accent-color)" />}
+          </button>
         )}
       </div>
 
       <div className="matrix-task-actions" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-        {openZenMode && (
-          <button onClick={() => openZenMode(task.content)} style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer', padding: '4px' }} title="이 태스크에 몰입하기 (Zen Mode)">
-            <Activity size={14} />
-          </button>
-        )}
-        <button onClick={() => removeTask(task.id)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: 0.5, padding: '4px' }}>
+        <button
+          type="button"
+          className="matrix-task-time-action"
+          onClick={(event) => {
+            event.stopPropagation();
+            updateTaskTime(task.id);
+          }}
+          title="예상 시간 변경"
+          aria-label={`${task.content} 예상 시간 변경`}
+        >
+          <Clock size={14} />
+          <span>{formatTime(taskMinutes) || '시간'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            removeTask(task.id);
+          }}
+          style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', opacity: 0.5, padding: '4px' }}
+        >
           <X size={16} />
         </button>
       </div>
@@ -238,8 +385,8 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskNot
 }
 
 function App() {
-  const [session, setSession] = useState(null);
-  const [tasks, setTasks] = useState([]);
+  const [session, setSession] = useState(() => isMatrixPreview ? previewSession : null);
+  const [tasks, setTasks] = useState(() => isMatrixPreview ? previewTasks : []);
   const [newTask, setNewTask] = useState('');
   const [draggingSourceId, setDraggingSourceId] = useState(null);
   const [theme, setTheme] = useState(() => {
@@ -249,12 +396,20 @@ function App() {
   const [activeTag, setActiveTag] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [crushedTaskId, setCrushedTaskId] = useState(null);
+  const [slateSourceId, setSlateSourceId] = useState('q1');
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
 
   const [selectedTime, setSelectedTime] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);
-  
-  const [isZenMode, setIsZenMode] = useState(false);
-  const [zenTask, setZenTask] = useState(null);
+  const [tagPalette, setTagPalette] = useState(() => isMatrixPreview ? previewTagPalette : []);
+  const tagPaletteRef = useRef(tagPalette);
+  const syncedTagPaletteRef = useRef(tagPalette);
+  const tagSyncQueueRef = useRef(Promise.resolve());
+  const [dailyCapacityMinutes, setDailyCapacityMinutes] = useState(() => {
+    if (typeof window === 'undefined') return 480;
+    const saved = Number(localStorage.getItem('zeromatrix-daily-capacity'));
+    return [240, 360, 480].includes(saved) ? saved : 480;
+  });
   const [returnUrl] = useState(getInitialReturnUrl);
   const [selectedDate] = useState(getInitialSuiteDate);
   const [mobileSectionId, setMobileSectionId] = useState('sidebar');
@@ -263,42 +418,41 @@ function App() {
   const [importNotice, setImportNotice] = useState(null);
   const importNoticeTimerRef = useRef(null);
 
-  const openZenMode = (taskContent = null) => {
-    setZenTask(taskContent);
-    setIsZenMode(true);
-  };
-
   const buildSlateImportUrl = (selectedTasks) => {
     const target = new URL(returnUrl);
+    const usedTags = new Set(selectedTasks.flatMap((task) => task.tags || []));
+    const sharedPalette = tagPalette.filter((item) => usedTags.has(item.tag));
     target.searchParams.set('from', 'matrix');
-    target.searchParams.set('matrixVersion', '1');
+    target.searchParams.set('matrixVersion', '2');
+    target.searchParams.set('date', selectedDate);
     target.searchParams.set('matrixTasks', JSON.stringify(selectedTasks));
+    target.searchParams.set('matrixTags', JSON.stringify(toSlateTagPalette(sharedPalette)));
     return target.toString();
   };
 
-  const buildNoiseUrl = (taskContent = null) => {
-    const baseUrl = import.meta.env.VITE_ZERONOISE_URL || 'https://noise.zeroslate.kr';
-
-    try {
-      const target = new URL(baseUrl);
-      target.searchParams.set('from', 'matrix');
-      target.searchParams.set('returnUrl', window.location.href);
-      if (taskContent) target.searchParams.set('task', taskContent);
-      return target.toString();
-    } catch {
-      const params = new URLSearchParams({ from: 'matrix', returnUrl: window.location.href });
-      if (taskContent) params.set('task', taskContent);
-      return `${baseUrl}?${params.toString()}`;
-    }
-  };
-
-  const allTags = Array.from(new Set(tasks.flatMap(t => t.tags || [])));
+  const allTags = useMemo(() => Array.from(new Set([
+    ...tagPalette.map((item) => item.tag),
+    ...tasks.flatMap((task) => task.tags || []),
+  ])), [tagPalette, tasks]);
+  const tagColor = useCallback((tag) => getTagColor(tagPalette, tag), [tagPalette]);
   const selectedTask = tasks.find(t => t.id === selectedTaskId) || null;
   const mobileSection = MATRIX_SECTIONS.find(section => section.id === mobileSectionId) || MATRIX_SECTIONS[0];
   const mobileTasks = tasks.filter(t => t.quadrant === mobileSection.id && (!activeTag || (t.tags || []).includes(activeTag)));
   const dumpCount = tasks.filter(t => t.quadrant === 'sidebar').length;
-  const slateCandidateCount = tasks.filter(t => t.quadrant === 'q1').length;
+  const slateSource = getMatrixSection(slateSourceId);
+  const slateCandidateCount = tasks.filter(t => t.quadrant === slateSourceId).length;
   const slateReadyCount = Math.min(slateCandidateCount, MAX_SLATE_TASKS);
+  const accountLabel = session ? getAccountDisplayName(session.user) : '계정';
+  const quadrantMinutes = useMemo(() => QUADRANTS.reduce((totals, quadrant) => ({
+    ...totals,
+    [quadrant.id]: tasks
+      .filter((task) => task.quadrant === quadrant.id)
+      .reduce((sum, task) => sum + (task.timeEstimate || task.time_estimate || 0), 0),
+  }), { q1: 0, q2: 0, q3: 0, q4: 0 }), [tasks]);
+  const unestimatedExecutionCount = tasks.filter((task) => (
+    (task.quadrant === 'q1' || task.quadrant === 'q2')
+    && !(task.timeEstimate || task.time_estimate)
+  )).length;
   const nudgeMessage = useMemo(() => {
     const quadrantCounts = { q1: 0, q2: 0, q3: 0, q4: 0 };
     tasks.forEach(t => {
@@ -336,13 +490,26 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  useEffect(() => {
+    if (!isGuideOpen) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setIsGuideOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isGuideOpen]);
+
+  useEffect(() => {
+    tagPaletteRef.current = tagPalette;
+  }, [tagPalette]);
+
   const fetchTasks = useCallback(async (userId) => {
     const { data, error } = await supabase
       .from('matrix_tasks')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: true });
-      
+
     if (error) {
       console.error('Error fetching tasks', error);
       showImportNotice({ type: 'error', message: 'Matrix 작업을 불러오지 못했습니다.' });
@@ -355,10 +522,32 @@ function App() {
     }
   }, [showImportNotice]);
 
+  const fetchTagPalette = useCallback(async (userId) => {
+    const { data, error } = await supabase
+      .from('user_settings')
+      .select('custom_tags')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('ZeroSlate tag palette fetch failed', error);
+      return;
+    }
+
+    const nextPalette = normalizeTagPalette(data?.custom_tags);
+    tagPaletteRef.current = nextPalette;
+    syncedTagPaletteRef.current = nextPalette;
+    setTagPalette(nextPalette);
+  }, []);
+
   useEffect(() => {
+    if (isMatrixPreview) return undefined;
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) fetchTasks(session.user.id);
+      if (session) {
+        fetchTasks(session.user.id);
+        fetchTagPalette(session.user.id);
+      }
     });
 
     const {
@@ -367,13 +556,15 @@ function App() {
       setSession(session);
       if (session) {
         fetchTasks(session.user.id);
+        fetchTagPalette(session.user.id);
       } else {
         setTasks([]);
+        setTagPalette([]);
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchTasks]);
+  }, [fetchTagPalette, fetchTasks]);
 
   useEffect(() => {
     return () => {
@@ -400,13 +591,13 @@ function App() {
     const previousTasks = tasks;
     const newTasks = Array.from(tasks);
     const globalIndex = newTasks.findIndex(t => t.id === result.draggableId);
-    
+
     const draggedTask = { ...newTasks.splice(globalIndex, 1)[0] };
     draggedTask.quadrant = destination.droppableId;
 
     let insertIndex = newTasks.length;
     let localIndexCount = 0;
-    
+
     for (let i = 0; i < newTasks.length; i++) {
       if (newTasks[i].quadrant === destination.droppableId) {
         if (localIndexCount === destination.index) {
@@ -416,7 +607,7 @@ function App() {
         localIndexCount++;
       }
     }
-    
+
     if (insertIndex === newTasks.length && localIndexCount === destination.index) {
       let lastIndex = -1;
       for (let i = 0; i < newTasks.length; i++) {
@@ -443,6 +634,114 @@ function App() {
     }
   };
 
+  const persistTagPalette = async (nextPalette) => {
+    if (!session?.user?.id) return false;
+    const normalized = normalizeTagPalette(nextPalette);
+    tagPaletteRef.current = normalized;
+    setTagPalette(normalized);
+
+    if (isMatrixPreview) return true;
+
+    const syncOperation = tagSyncQueueRef.current.then(() => (
+      supabase.from('user_settings').upsert({
+        user_id: session.user.id,
+        custom_tags: toSlateTagPalette(normalized),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' })
+    ));
+    tagSyncQueueRef.current = syncOperation.catch(() => {});
+    let error;
+    try {
+      ({ error } = await syncOperation);
+    } catch (syncError) {
+      error = syncError;
+    }
+
+    if (error) {
+      console.error('ZeroSlate tag palette sync failed', error);
+      if (tagPaletteRef.current === normalized) {
+        tagPaletteRef.current = syncedTagPaletteRef.current;
+        setTagPalette(syncedTagPaletteRef.current);
+      }
+      showImportNotice({ type: 'error', message: '태그 색상을 ZeroSlate와 동기화하지 못했습니다.' });
+      return false;
+    }
+    syncedTagPaletteRef.current = normalized;
+    return true;
+  };
+
+  const ensureTagsInPalette = async (tags) => {
+    const currentPalette = tagPaletteRef.current;
+    const nextPalette = mergeTagPalette(currentPalette, tags);
+    if (nextPalette.length === currentPalette.length) return;
+    await persistTagPalette(nextPalette);
+  };
+
+  const handleTagColorChange = async (tag, color) => {
+    const nextPalette = mergeTagPalette(tagPaletteRef.current, [tag]).map((item) => (
+      item.tag === tag ? { ...item, color } : item
+    ));
+    const synced = await persistTagPalette(nextPalette);
+    if (synced) showImportNotice({ type: 'success', message: `#${tag} 색상을 ZeroSlate와 맞췄습니다.` });
+  };
+
+  const handleTaskTagCycle = async (id) => {
+    const target = tasks.find((task) => task.id === id);
+    const tagOptions = allTags.filter(Boolean);
+    if (!target || tagOptions.length === 0) return;
+
+    const currentTags = target.tags || [];
+    const currentPrimaryTag = currentTags[0] || null;
+    const currentIndex = tagOptions.indexOf(currentPrimaryTag);
+    if (currentPrimaryTag && tagOptions.length < 2) return;
+
+    const nextPrimaryTag = tagOptions[(currentIndex + 1 + tagOptions.length) % tagOptions.length];
+    const nextTags = [
+      nextPrimaryTag,
+      ...currentTags.slice(1).filter((tag) => tag !== nextPrimaryTag),
+    ];
+    const previousTasks = tasks;
+
+    setTasks((currentTasks) => currentTasks.map((task) => (
+      task.id === id ? { ...task, tags: nextTags } : task
+    )));
+
+    if (isMatrixPreview) return;
+
+    const { error } = await supabase.from('matrix_tasks').update({ tags: nextTags }).eq('id', id);
+    if (error) {
+      console.error('Error updating task tags', error);
+      setTasks(previousTasks);
+      showImportNotice({ type: 'error', message: '태그 변경을 저장하지 못해 이전 상태로 되돌렸습니다.' });
+    }
+  };
+
+  const handleCapacityChange = (minutes) => {
+    setDailyCapacityMinutes(minutes);
+    localStorage.setItem('zeromatrix-daily-capacity', String(minutes));
+  };
+
+  const updateTaskTime = async (id) => {
+    const target = tasks.find((task) => task.id === id);
+    if (!target) return;
+    const current = target.timeEstimate || target.time_estimate || 0;
+    const next = getNextTimeEstimate(current);
+    const previousTasks = tasks;
+
+    setTasks((currentTasks) => currentTasks.map((task) => (
+      task.id === id ? { ...task, timeEstimate: next, time_estimate: next } : task
+    )));
+
+    if (isMatrixPreview) return;
+
+    const { error } = await supabase.from('matrix_tasks').update({ time_estimate: next }).eq('id', id);
+    if (error) {
+      console.error('Error updating time estimate', error);
+      setTasks(previousTasks);
+      showImportNotice({ type: 'error', message: '예상 시간을 저장하지 못했습니다.' });
+    }
+  };
+
   const toggleTagSelection = (tag) => {
     if (selectedTags.includes(tag)) {
       setSelectedTags(selectedTags.filter(t => t !== tag));
@@ -454,7 +753,7 @@ function App() {
   const handleAddTask = async (e) => {
     e.preventDefault();
     if (!newTask.trim() || !session) return;
-    
+
     let content = newTask.trim();
     if (selectedTime) content += ` [${selectedTime}]`;
     if (selectedTags.length > 0) {
@@ -473,9 +772,10 @@ function App() {
     };
 
     const { data, error } = await supabase.from('matrix_tasks').insert(newTaskObj).select().single();
-    
+
     if (!error && data) {
       setTasks(currentTasks => [...currentTasks, { ...data, timeEstimate: data.time_estimate }]);
+      await ensureTagsInPalette(parsed.tags);
       setNewTask('');
       setSelectedTime(null);
       setSelectedTags([]);
@@ -505,6 +805,20 @@ function App() {
       console.error('Error updating note', error);
       setTasks(previousTasks);
       showImportNotice({ type: 'error', message: '메모를 저장하지 못해 이전 내용으로 되돌렸습니다.' });
+    }
+  };
+
+  const updateTaskContent = async (id, newContent) => {
+    const previousTasks = tasks;
+    setTasks(tasks.map(t => t.id === id ? { ...t, content: newContent } : t));
+
+    if (isMatrixPreview) return;
+
+    const { error } = await supabase.from('matrix_tasks').update({ content: newContent }).eq('id', id);
+    if (error) {
+      console.error('Error updating content', error);
+      setTasks(previousTasks);
+      showImportNotice({ type: 'error', message: '작업 내용을 저장하지 못해 이전 내용으로 되돌렸습니다.' });
     }
   };
 
@@ -573,6 +887,7 @@ function App() {
 
     const formatted = (inserted || []).map(t => ({ ...t, timeEstimate: t.time_estimate }));
     setTasks(currentTasks => [...currentTasks, ...formatted]);
+    await ensureTagsInPalette(formatted.flatMap((task) => task.tags || []));
     setMobileSectionId('sidebar');
     showImportNotice({ type: 'success', message: `ZeroSlate 브레인 덤프 ${formatted.length}개를 가져왔습니다.` });
     setIsImportingBrainDump(false);
@@ -606,8 +921,9 @@ function App() {
     }
   };
 
-  const handleSendToSlate = () => {
-    const slateCandidates = tasks.filter(t => t.quadrant === 'q1');
+  const handleSendToSlate = async () => {
+    if (isSending) return;
+    const slateCandidates = tasks.filter(t => t.quadrant === slateSourceId);
     const todayTasks = slateCandidates
       .slice(0, MAX_SLATE_TASKS)
       .map(t => ({
@@ -620,21 +936,51 @@ function App() {
       }));
 
     if (slateCandidates.length === 0) {
-      alert('오늘 할 일(중요+긴급)이 없습니다!');
+      alert(`${slateSource.title}에 보낼 일이 없습니다!`);
       return;
     }
 
     setIsSending(true);
+
+    if (!isMatrixPreview && session?.user?.id) {
+      const { count, error } = await supabase
+        .from('top_three')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', session.user.id)
+        .eq('date', selectedDate);
+
+      if (error) {
+        console.error('ZeroSlate Top 3 check failed:', error);
+        showImportNotice({ type: 'error', message: 'ZeroSlate Top 3 상태를 확인하지 못했습니다.' });
+        setIsSending(false);
+        return;
+      }
+
+      if ((count || 0) > 0) {
+        showImportNotice({ type: 'error', message: 'ZeroSlate Top 3에 기존 항목이 있어 보내기를 중단했습니다.' });
+        setIsSending(false);
+        return;
+      }
+    }
+
     if (slateCandidates.length > MAX_SLATE_TASKS) {
       showImportNotice({
-        type: 'info',
-        message: `ZeroSlate Top 3 제한으로 상위 ${MAX_SLATE_TASKS}개만 보냅니다.`
+        type: 'success',
+        message: `${slateSource.mobileTitle}에서 ZeroSlate Top 3 제한으로 상위 ${MAX_SLATE_TASKS}개만 보냅니다.`
       });
     }
 
-    const textToCopy = todayTasks.map(t => `- [ ] ${t.content}`).join('\n');
-    localStorage.setItem('zeroslate_shared_tasks', JSON.stringify(todayTasks));
-    
+    const textToCopy = todayTasks.map((task) => {
+      const duration = formatTime(task.timeEstimate);
+      const tags = task.tags.map((tag) => `#${tag}`).join(' ');
+      return `- [ ] ${[task.content, duration ? `[${duration}]` : '', tags].filter(Boolean).join(' ')}`;
+    }).join('\n');
+    localStorage.setItem('zeroslate_shared_tasks', JSON.stringify({
+      tasks: todayTasks,
+      tags: toSlateTagPalette(tagPalette),
+      version: 2,
+    }));
+
     setTimeout(() => {
       navigator.clipboard?.writeText(textToCopy).catch(() => {});
       window.location.assign(buildSlateImportUrl(todayTasks));
@@ -655,160 +1001,162 @@ function App() {
       <SuiteBackButton href={returnUrl} />
       <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="matrix-shell" style={{ background: 'var(--bg-color)', display: 'flex', justifyContent: 'center', height: '100vh' }}>
-          <div className="matrix-workspace" style={{ display: 'flex', width: '100%', maxWidth: '1400px', padding: '24px', gap: '24px' }}>
+          <div className="matrix-workspace" style={{ display: 'flex', width: '100%', maxWidth: '1760px', padding: '24px', gap: '24px' }}>
           {/* Sidebar - Brain Dump */}
-          <div className="matrix-sidebar" style={{ display: 'flex', flexDirection: 'column', width: '380px', flexShrink: 0 }}>
+          <div className="matrix-sidebar" style={{ display: 'flex', flexDirection: 'column', width: 'clamp(660px, 47vw, 820px)', flex: '0 1 clamp(660px, 47vw, 820px)', minWidth: '660px' }}>
           {/* Header */}
           <div className="matrix-app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h1 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            <h1 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
               <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'var(--accent-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
                 <span style={{ fontSize: '14px' }}>Z</span>
               </div>
               ZeroMatrix
-            </h1>
-            <div className="matrix-header-actions matrix-mobile-tools" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
                 type="button"
-                onClick={handleImportBrainDump}
-                disabled={isImportingBrainDump}
-                className="glass-button matrix-import-button"
-                title={`${selectedDate} ZeroSlate 브레인 덤프 가져오기`}
+                className="matrix-guide-trigger"
+                onClick={() => setIsGuideOpen(true)}
+                aria-haspopup="dialog"
               >
-                <Download size={14} /> {isImportingBrainDump ? '가져오는 중' : 'Slate'}
+                <HelpCircle size={14} />
+                <span>사용법</span>
               </button>
-              <button 
-                onClick={() => openZenMode()}
-                className="glass-button"
-                style={{ background: 'var(--accent-color)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, whiteSpace: 'nowrap', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
-                title="전역 젠 모드 켜기"
-              >
-                <Activity size={14} /> 젠 모드
-              </button>
-              <select 
+            </h1>
+            <div className="matrix-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className="matrix-account-pill matrix-header-account" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
+                <div className="matrix-account-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success-color)' }} />
+                <span className="matrix-account-email" title={session.user.email} style={{ fontSize: '0.85rem', fontWeight: 560, color: 'var(--text-color)' }}>{accountLabel}</span>
+                <button
+                  className="matrix-logout-button"
+                  onClick={() => supabase.auth.signOut()}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', marginLeft: '4px', opacity: 0.7 }}
+                  title="로그아웃"
+                >
+                  <LogOut size={14} />
+                </button>
+              </div>
+              <select
                 value={theme}
                 onChange={(e) => {setTheme(e.target.value); localStorage.setItem('zeromatrix-theme', e.target.value); document.documentElement.setAttribute('data-theme', e.target.value);}}
-                className="theme-select"
+                className="theme-select matrix-theme-select matrix-header-theme-select"
+                title="배경 테마"
                 style={{ width: 'auto' }}
               >
-                <option value="light">☀️ Light</option>
-                <option value="midnight">🌙 Midnight</option>
-                <option value="ocean">🌊 Ocean</option>
-                <option value="sunset">🌇 Sunset</option>
-                <option value="forest">🌲 Forest</option>
-                <option value="lavender">💜 Lavender</option>
-                <option value="rose">🌹 Rose</option>
-                <option value="coffee">☕ Coffee</option>
+                <option value="light">Light</option>
+                <option value="midnight">Midnight</option>
+                <option value="ocean">Ocean</option>
+                <option value="sunset">Sunset</option>
+                <option value="forest">Forest</option>
+                <option value="lavender">Lavender</option>
+                <option value="rose">Rose</option>
+                <option value="coffee">Coffee</option>
               </select>
             </div>
           </div>
 
-          {/* Input Panel */}
-          <div className="glass-panel matrix-input-panel" style={{ padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-color)' }}>
-              <span style={{ color: 'var(--accent-color)' }}>⚡️</span> Brain Dump
-            </h2>
-            
-            <form className="matrix-task-form" onSubmit={handleAddTask} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-              <input 
-                type="text" 
-                className="glass-input" 
-                placeholder="할 일 적기..." 
-                value={newTask}
-                onChange={(e) => setNewTask(e.target.value)}
-                style={{ flex: 1, padding: '10px 14px', fontSize: '0.9rem', outline: 'none' }}
-              />
-              <button type="submit" style={{ padding: '0 16px', background: 'var(--accent-color)', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', transition: 'background 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Plus size={18} />
-              </button>
-            </form>
-            
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                <Clock size={12} color="var(--text-secondary)" />
-                {['15m', '30m', '1h', '2h'].map(t => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setSelectedTime(selectedTime === t ? null : t)}
-                    style={{
-                      fontSize: '0.7rem', padding: '4px 8px', borderRadius: '12px', cursor: 'pointer',
-                      border: selectedTime === t ? '1px solid var(--accent-color)' : '1px solid var(--border-color)',
-                      background: selectedTime === t ? 'var(--accent-light)' : 'transparent',
-                      color: selectedTime === t ? 'var(--accent-color)' : 'var(--text-secondary)',
-                      fontWeight: selectedTime === t ? 600 : 500,
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    {t}
+          <div className="matrix-dump-layout">
+            <div className="matrix-dump-controls">
+              {/* Input Panel */}
+              <div className="glass-panel matrix-input-panel" style={{ padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column' }}>
+                <h2 style={{ fontSize: '1rem', fontWeight: 650, margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-color)' }}>
+                  <span style={{ color: 'var(--accent-color)' }}>⚡️</span> Brain Dump
+                </h2>
+
+                <form className="matrix-task-form" onSubmit={handleAddTask} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                  <input
+                    type="text"
+                    className="glass-input"
+                    placeholder="할 일 적기..."
+                    value={newTask}
+                    onChange={(e) => setNewTask(e.target.value)}
+                    style={{ flex: 1, padding: '10px 14px', fontSize: '0.9rem', outline: 'none' }}
+                  />
+                  <button type="submit" style={{ padding: '0 16px', background: 'var(--accent-color)', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', transition: 'background 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Plus size={18} />
                   </button>
-                ))}
+                </form>
+
+                <div className="matrix-entry-options">
+                  <div className="matrix-time-preset" aria-label="새 작업 예상 시간">
+                    <Clock size={12} color="var(--text-secondary)" />
+                    {['15m', '30m', '1h', '2h'].map(t => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setSelectedTime(selectedTime === t ? null : t)}
+                        className={selectedTime === t ? 'is-active' : ''}
+                        aria-pressed={selectedTime === t}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                  <TagSelectionRow
+                    tags={allTags}
+                    selectedTags={selectedTags}
+                    getColor={tagColor}
+                    onToggle={toggleTagSelection}
+                  />
+                </div>
+
+                <TimeBudget
+                  capacity={dailyCapacityMinutes}
+                  onCapacityChange={handleCapacityChange}
+                  quadrantMinutes={quadrantMinutes}
+                  unestimatedCount={unestimatedExecutionCount}
+                />
+
+                {importNotice && (
+                  <div className={`matrix-import-notice is-${importNotice.type}`}>
+                    {importNotice.message}
+                  </div>
+                )}
               </div>
 
-              {allTags.length > 0 && <div style={{ width: '1px', height: '12px', background: 'var(--border-color)', margin: '0 4px' }} />}
-
-              {allTags.length > 0 && (
-                <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <Tag size={12} color="var(--text-secondary)" />
-                  {allTags.map(tag => (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => toggleTagSelection(tag)}
-                      style={{
-                        fontSize: '0.7rem', padding: '4px 8px', borderRadius: '12px', cursor: 'pointer',
-                        border: selectedTags.includes(tag) ? '1px solid var(--accent-color)' : '1px solid var(--border-color)',
-                        background: selectedTags.includes(tag) ? 'var(--accent-light)' : 'transparent',
-                        color: selectedTags.includes(tag) ? 'var(--accent-color)' : 'var(--text-secondary)',
-                        fontWeight: selectedTags.includes(tag) ? 600 : 500,
-                        transition: 'all 0.2s'
-                      }}
-                    >
-                      #{tag}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <TagFilterBar
+                tags={allTags}
+                activeTag={activeTag}
+                getColor={tagColor}
+                onFilter={setActiveTag}
+                onColorChange={handleTagColorChange}
+              />
             </div>
 
-            {importNotice && (
-              <div className={`matrix-import-notice is-${importNotice.type}`}>
-                {importNotice.message}
+            {/* Droppable Sidebar List */}
+            <div className="glass-panel matrix-sidebar-list" style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
+              <div className="matrix-list-heading">
+                <div className="matrix-list-heading-main">
+                  <span className="matrix-list-icon" aria-hidden="true">⚡</span>
+                  <strong>Brain Dump</strong>
+                  <span>{dumpCount}개</span>
+                </div>
+                <span className="matrix-list-filter-lines" aria-hidden="true" />
               </div>
-            )}
-          </div>
-
-          {/* Tags Filter Row */}
-          {allTags.length > 0 && (
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-              <button 
-                onClick={() => setActiveTag(null)}
-                style={{
-                  fontSize: '0.8rem', padding: '6px 14px', borderRadius: '20px', cursor: 'pointer', border: '1px solid var(--border-color)',
-                  background: activeTag === null ? 'var(--text-color)' : 'transparent',
-                  color: activeTag === null ? 'var(--bg-color)' : 'var(--text-secondary)',
-                  fontWeight: activeTag === null ? 600 : 400,
-                  transition: 'all 0.2s'
+              <Droppable
+                droppableId="sidebar"
+                renderClone={(provided, snapshot, rubric) => {
+                  const task = tasks.find(t => t.id === rubric.draggableId);
+                  if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
+                  return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} tagOptionCount={allTags.length} />;
                 }}
               >
-                All
-              </button>
-              {allTags.map(tag => (
-                <button 
-                  key={tag}
-                  onClick={() => setActiveTag(tag)}
-                  style={{
-                    fontSize: '0.8rem', padding: '6px 14px', borderRadius: '20px', cursor: 'pointer', border: activeTag === tag ? '1px solid var(--accent-color)' : '1px solid var(--border-color)',
-                    background: activeTag === tag ? 'var(--accent-color)' : 'transparent',
-                    color: activeTag === tag ? '#fff' : 'var(--text-secondary)',
-                    fontWeight: activeTag === tag ? 600 : 400,
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  #{tag}
-                </button>
-              ))}
+                {(provided) => (
+                  <div
+                    {...provided.droppableProps}
+                    ref={provided.innerRef}
+                    className="matrix-task-stack matrix-dump-stack"
+                    style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}
+                  >
+                    {tasks.filter(t => t.quadrant === 'sidebar').map((task, index) => (
+                      <Draggable key={task.id} draggableId={task.id} index={index}>
+                        {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} tagOptionCount={allTags.length} />}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
             </div>
-          )}
+          </div>
 
           <div className="mobile-matrix-flow">
             <div className="mobile-section-tabs" role="tablist" aria-label="ZeroMatrix sections">
@@ -890,14 +1238,23 @@ function App() {
                           {(taskMinutes > 0 || (task.tags && task.tags.length > 0)) && (
                             <span className="mobile-task-meta">
                               {taskMinutes > 0 && <span><Clock size={10} /> {formatTime(taskMinutes)}</span>}
-                              {task.tags?.map(tag => <span key={tag}><Tag size={10} /> {tag}</span>)}
+                              {task.tags?.map(tag => (
+                                <span key={tag} className="is-tag" style={{ '--tag-color': tagColor(tag) }}>
+                                  <span className="matrix-task-tag-dot" aria-hidden="true" />#{tag}
+                                </span>
+                              ))}
                             </span>
                           )}
                         </button>
                         <div className="mobile-task-actions">
-                          <button type="button" onClick={() => openZenMode(task.content)}>
-                            <Activity size={13} /> 몰입
+                          <button type="button" onClick={() => updateTaskTime(task.id)}>
+                            <Clock size={13} /> {formatTime(taskMinutes) || '시간'}
                           </button>
+                          {((task.tags?.length > 0 ? allTags.length > 1 : allTags.length > 0)) && (
+                            <button type="button" onClick={() => handleTaskTagCycle(task.id)}>
+                              <TagIcon size={13} /> 태그
+                            </button>
+                          )}
                           <button type="button" onClick={() => removeTask(task.id)}>
                             <X size={13} /> 삭제
                           </button>
@@ -910,32 +1267,6 @@ function App() {
             </section>
           </div>
 
-          {/* Droppable Sidebar List */}
-          <div className="glass-panel matrix-sidebar-list" style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
-            <Droppable 
-              droppableId="sidebar"
-              renderClone={(provided, snapshot, rubric) => {
-                const task = tasks.find(t => t.id === rubric.draggableId);
-                if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
-                return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskNote={updateTaskNote} activeTag={activeTag} openZenMode={openZenMode} />;
-              }}
-            >
-              {(provided) => (
-                <div 
-                  {...provided.droppableProps} 
-                  ref={provided.innerRef}
-                  style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}
-                >
-                  {tasks.filter(t => t.quadrant === 'sidebar').map((task, index) => (
-                    <Draggable key={task.id} draggableId={task.id} index={index}>
-                      {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskNote={updateTaskNote} activeTag={activeTag} isCrushed={crushedTaskId === task.id} openZenMode={openZenMode} />}
-                    </Draggable>
-                  ))}
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
-          </div>
         </div>
 
         {/* Main Content - Matrix */}
@@ -944,21 +1275,9 @@ function App() {
           <div className="matrix-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', height: '28px' }}>
             <p className="matrix-toolbar-summary" style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
               <span>우선순위 정리</span>
-              <strong>덤프 {dumpCount} · 전송 {slateReadyCount}</strong>
+              <strong>{slateSource.mobileTitle} {slateReadyCount}/{slateCandidateCount}</strong>
             </p>
             <div className="matrix-toolbar-cluster" style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-              <div className="matrix-account-pill" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
-                <div className="matrix-account-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success-color)' }} />
-                <span className="matrix-account-email" style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-color)' }}>{session.user.email}</span>
-                <button 
-                  className="matrix-logout-button"
-                  onClick={() => supabase.auth.signOut()}
-                  style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', marginLeft: '4px', opacity: 0.7 }}
-                  title="로그아웃"
-                >
-                  <LogOut size={14} />
-                </button>
-              </div>
               <div className="matrix-toolbar-tools">
                 <button
                   type="button"
@@ -970,38 +1289,27 @@ function App() {
                   <Download size={14} />
                   <span>{isImportingBrainDump ? '가져오는 중' : 'Slate 덤프'}</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => openZenMode()}
-                  className="glass-button matrix-zen-button"
-                  title="전역 젠 모드 켜기"
-                >
-                  <Activity size={14} />
-                  <span>젠 모드</span>
-                </button>
-                <select
-                  value={theme}
-                  onChange={(e) => {
-                    setTheme(e.target.value);
-                    localStorage.setItem('zeromatrix-theme', e.target.value);
-                    document.documentElement.setAttribute('data-theme', e.target.value);
-                  }}
-                  className="theme-select matrix-theme-select"
-                  title="배경 테마"
-                >
-                  <option value="light">Light</option>
-                  <option value="midnight">Midnight</option>
-                  <option value="ocean">Ocean</option>
-                  <option value="sunset">Sunset</option>
-                  <option value="forest">Forest</option>
-                  <option value="lavender">Lavender</option>
-                  <option value="rose">Rose</option>
-                  <option value="coffee">Coffee</option>
-                </select>
               </div>
-              <button type="button" className="matrix-send-button" onClick={handleSendToSlate}>
+              <label className="matrix-send-source">
+                <span>보낼 목록</span>
+                <select
+                  value={slateSourceId}
+                  onChange={(event) => setSlateSourceId(event.target.value)}
+                  aria-label="ZeroSlate로 보낼 목록 선택"
+                >
+                  {MATRIX_SECTIONS.map((section) => {
+                    const count = tasks.filter(t => t.quadrant === section.id).length;
+                    return (
+                      <option key={section.id} value={section.id}>
+                        {section.mobileTitle} {count}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              <button type="button" className="matrix-send-button" onClick={handleSendToSlate} disabled={isSending}>
                 <span className={isSending ? 'rocket-animate' : ''} style={{ display: 'flex' }}>🚀</span>
-                <span>{isSending ? '전송중...' : '제로슬레이트로 보내기'}</span>
+                <span>{isSending ? '전송중...' : `${slateSource.mobileTitle} 보내기`}</span>
               </button>
             </div>
           </div>
@@ -1028,23 +1336,24 @@ function App() {
                           </span>
                         )}
                       </h3>
-                      <Droppable 
+                      <Droppable
                         droppableId={q.id}
                         renderClone={(provided, snapshot, rubric) => {
                           const task = tasks.find(t => t.id === rubric.draggableId);
                           if (!task) return <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} />;
-                          return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskNote={updateTaskNote} activeTag={activeTag} openZenMode={openZenMode} />;
+                          return <TaskCard task={task} provided={provided} snapshot={snapshot} isClone={true} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} tagOptionCount={allTags.length} />;
                         }}
                       >
                         {(provided, snapshot) => (
-                          <div 
-                            {...provided.droppableProps} 
+                          <div
+                            {...provided.droppableProps}
                             ref={provided.innerRef}
-                            style={{ 
-                              flex: 1, 
-                              overflowY: 'auto', 
-                              display: 'flex', 
-                              flexDirection: 'column', 
+                            className="matrix-task-stack"
+                            style={{
+                              flex: 1,
+                              overflowY: 'auto',
+                              display: 'flex',
+                              flexDirection: 'column',
                               gap: '8px',
                               background: snapshot.isDraggingOver ? 'var(--bg-color)' : 'transparent',
                               borderRadius: '8px',
@@ -1054,7 +1363,7 @@ function App() {
                           >
                             {tasks.filter(t => t.quadrant === q.id).map((task, index) => (
                               <Draggable key={task.id} draggableId={task.id} index={index}>
-                                {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskNote={updateTaskNote} activeTag={activeTag} isCrushed={crushedTaskId === task.id} openZenMode={openZenMode} />}
+                                {(provided, snapshot) => <TaskCard task={task} provided={provided} snapshot={snapshot} removeTask={removeTask} updateTaskContent={updateTaskContent} updateTaskNote={updateTaskNote} updateTaskTime={updateTaskTime} activeTag={activeTag} isCrushed={crushedTaskId === task.id} tagColor={tagColor} onTaskTagCycle={handleTaskTagCycle} tagOptionCount={allTags.length} />}
                               </Draggable>
                             ))}
                             {provided.placeholder}
@@ -1073,15 +1382,15 @@ function App() {
       </DragDropContext>
 
       {nudgeMessage && (
-        <div 
-          className="glass-panel" 
-          style={{ 
-            position: 'fixed', 
-            bottom: '2rem', 
-            right: '2rem', 
-            padding: '1rem 1.5rem', 
-            display: 'flex', 
-            alignItems: 'center', 
+        <div
+          className="glass-panel"
+          style={{
+            position: 'fixed',
+            bottom: '2rem',
+            right: '2rem',
+            padding: '1rem 1.5rem',
+            display: 'flex',
+            alignItems: 'center',
             gap: '12px',
             animation: 'slideUp 0.3s ease-out',
             borderLeft: '4px solid var(--danger-color)',
@@ -1099,37 +1408,8 @@ function App() {
         </div>
       )}
 
-      {/* Zen Mode Iframe Overlay */}
-      {isZenMode && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, width: '100vw', height: '100vh',
-          zIndex: 9999,
-          background: '#000',
-          display: 'flex',
-          flexDirection: 'column'
-        }}>
-          <div style={{
-            position: 'absolute', top: '16px', right: '24px', zIndex: 10000
-          }}>
-            <button 
-              onClick={() => setIsZenMode(false)}
-              style={{
-                background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff',
-                padding: '8px 16px', borderRadius: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
-                backdropFilter: 'blur(10px)', fontSize: '0.9rem', fontWeight: 600
-              }}
-            >
-              <X size={16} /> 나가기 (Exit Zen Mode)
-            </button>
-          </div>
-          <iframe 
-            src={buildNoiseUrl(zenTask)}
-            style={{ width: '100%', height: '100%', border: 'none' }}
-            title="ZeroNoise Zen Mode"
-          />
-        </div>
-      )}
+      {isGuideOpen && <MatrixGuideModal onClose={() => setIsGuideOpen(false)} />}
+
     </>
   );
 }
