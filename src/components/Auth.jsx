@@ -25,6 +25,22 @@ export default function Auth() {
     setLoading(false);
   };
 
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setMessage('');
+
+    // Keep standalone OAuth callbacks on the suite app that started the flow.
+    const redirectTo = `${window.location.origin}/`;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo },
+    });
+    if (error) {
+      setMessage('Google 로그인 연결에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+      setLoading(false);
+    }
+  };
+
   return (
     <div style={{
       display: 'flex',
@@ -91,6 +107,31 @@ export default function Auth() {
             {loading ? '로그인 중...' : '로그인'}
           </button>
         </form>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+          <span style={{ height: '1px', flex: 1, background: 'var(--border-color)' }} />
+          또는
+          <span style={{ height: '1px', flex: 1, background: 'var(--border-color)' }} />
+        </div>
+
+        <button
+          type="button"
+          onClick={handleGoogleLogin}
+          disabled={loading}
+          style={{
+            padding: '12px',
+            background: 'var(--card-bg)',
+            color: 'var(--text-color)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '8px',
+            fontSize: '0.95rem',
+            fontWeight: 700,
+            cursor: loading ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.7 : 1,
+          }}
+        >
+          G&nbsp;&nbsp;Google로 로그인
+        </button>
 
         {message && <p style={{ fontSize: '0.85rem', color: message.includes('성공') ? 'var(--success-color)' : 'var(--danger-color)', marginTop: '10px' }}>{message}</p>}
       </div>
