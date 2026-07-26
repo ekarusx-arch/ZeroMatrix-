@@ -1,0 +1,22 @@
+{
+  "id": "/",
+  "name": "ZeroMatrix",
+  "short_name": "ZeroMatrix",
+  "description": "브레인 덤프를 중요도와 긴급도로 정리하는 우선순위 도구입니다.",
+  "lang": "ko-KR",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f0f2f7",
+  "theme_color": "#f0f2f7",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

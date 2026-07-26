@@ -1,12 +1,13 @@
 /* eslint-disable react-hooks/refs -- @hello-pangea/dnd exposes render-prop refs that React 19 lint treats as ref reads. */
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { ArrowLeft, GripVertical, X, Clock, FileText, Plus, LogOut, AlertCircle, Download, HelpCircle, Tag as TagIcon } from 'lucide-react';
+import { ArrowLeft, ArrowRight, GripVertical, X, Clock, FileText, Plus, LogOut, AlertCircle, Download, HelpCircle, ListFilter, Tag as TagIcon } from 'lucide-react';
 import Auth from './components/Auth';
 import { TagFilterBar, TagSelectionRow } from './components/TagControls';
 import TimeBudget from './components/TimeBudget';
 import { supabase } from './lib/supabaseClient';
 import { isMatrixPreview, previewSession, previewTagPalette, previewTasks } from './lib/devPreview';
+import { consumeSuiteLogin } from './lib/zeroSlateApi';
 import { getTagColor, mergeTagPalette, normalizeTagPalette, toSlateTagPalette } from './lib/tagPalette';
 import { getNextTimeEstimate } from './lib/timeBudget';
 
@@ -49,6 +50,18 @@ function getInitialReturnUrl() {
   if (typeof window === 'undefined') return ZERO_SLATE_URL;
   const params = new URLSearchParams(window.location.search);
   return getSafeReturnUrl(params.get('returnUrl') || params.get('return'));
+}
+
+function getInitialSuiteCode() {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('suiteCode');
+}
+
+function buildSuiteReturnUrl(rawUrl, source = 'matrix') {
+  const target = new URL(getSafeReturnUrl(rawUrl));
+  target.searchParams.set('suiteReturn', '1');
+  target.searchParams.set('from', source);
+  return target.toString();
 }
 
 function getLocalDateKey() {
@@ -122,7 +135,7 @@ function MatrixGuideModal({ onClose }) {
           </li>
           <li>
             <strong>ZeroSlate로 보내기</strong>
-            <span>보낼 목록을 고른 뒤 Slate로 보냅니다. ZeroSlate Top 3가 비어 있을 때만 가져갈 수 있습니다.</span>
+            <span>보낼 목록을 고른 뒤 Slate로 보냅니다. ZeroSlate Top 3가 비어 있을 때만 가져갈 수 있고, 전송한 항목은 Matrix 목록에서 정리됩니다.</span>
           </li>
         </ol>
         <div className="matrix-guide-note">
@@ -411,7 +424,9 @@ function App() {
     return [240, 360, 480].includes(saved) ? saved : 480;
   });
   const [returnUrl] = useState(getInitialReturnUrl);
+  const [suiteCode] = useState(getInitialSuiteCode);
   const [selectedDate] = useState(getInitialSuiteDate);
+  const suiteReturnUrl = useMemo(() => buildSuiteReturnUrl(returnUrl), [returnUrl]);
   const [mobileSectionId, setMobileSectionId] = useState('sidebar');
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isImportingBrainDump, setIsImportingBrainDump] = useState(false);
@@ -419,7 +434,7 @@ function App() {
   const importNoticeTimerRef = useRef(null);
 
   const buildSlateImportUrl = (selectedTasks) => {
-    const target = new URL(returnUrl);
+    const target = new URL(suiteReturnUrl);
     const usedTags = new Set(selectedTasks.flatMap((task) => task.tags || []));
     const sharedPalette = tagPalette.filter((item) => usedTags.has(item.tag));
     target.searchParams.set('from', 'matrix');
@@ -542,29 +557,54 @@ function App() {
 
   useEffect(() => {
     if (isMatrixPreview) return undefined;
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) {
-        fetchTasks(session.user.id);
-        fetchTagPalette(session.user.id);
-      }
-    });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) {
-        fetchTasks(session.user.id);
-        fetchTagPalette(session.user.id);
-      } else {
-        setTasks([]);
-        setTagPalette([]);
-      }
-    });
+    let active = true;
+    let subscription;
 
-    return () => subscription.unsubscribe();
-  }, [fetchTagPalette, fetchTasks]);
+    const initializeSession = async () => {
+      if (suiteCode) {
+        try {
+          await consumeSuiteLogin({
+            suiteCode,
+            supabaseAuth: supabase.auth,
+            locationHref: window.location.href,
+            replaceUrl: (nextUrl) => window.history.replaceState({}, '', nextUrl),
+          });
+        } catch (error) {
+          console.warn('ZeroSlate Suite 자동 로그인에 실패했습니다:', error);
+        }
+      }
+
+      const { data: { session: nextSession } } = await supabase.auth.getSession();
+      if (!active) return;
+
+      setSession(nextSession);
+      if (nextSession) {
+        fetchTasks(nextSession.user.id);
+        fetchTagPalette(nextSession.user.id);
+      }
+      const authState = supabase.auth.onAuthStateChange((_event, nextSessionState) => {
+        if (!active) return;
+        setSession(nextSessionState);
+        if (nextSessionState) {
+          fetchTasks(nextSessionState.user.id);
+          fetchTagPalette(nextSessionState.user.id);
+        } else {
+          setTasks([]);
+          setTagPalette([]);
+        }
+      });
+
+      subscription = authState.data.subscription;
+    };
+
+    initializeSession();
+
+    return () => {
+      active = false;
+      subscription?.unsubscribe();
+    };
+  }, [fetchTagPalette, fetchTasks, suiteCode]);
 
   useEffect(() => {
     return () => {
@@ -719,6 +759,35 @@ function App() {
   const handleCapacityChange = (minutes) => {
     setDailyCapacityMinutes(minutes);
     localStorage.setItem('zeromatrix-daily-capacity', String(minutes));
+  };
+
+  const sortBrainDumpByTag = () => {
+    const tagOrder = new Map(tagPalette.map((entry, index) => [entry.tag, index]));
+    const unknownTagRank = tagPalette.length;
+    const untaggedRank = unknownTagRank + 1;
+
+    setTasks((currentTasks) => {
+      const sortedDump = currentTasks
+        .filter((task) => task.quadrant === 'sidebar')
+        .map((task, index) => ({ task, index }))
+        .sort(({ task: a, index: indexA }, { task: b, index: indexB }) => {
+          const tagA = a.tags?.[0] || '';
+          const tagB = b.tags?.[0] || '';
+          const rankA = tagA ? (tagOrder.get(tagA) ?? unknownTagRank) : untaggedRank;
+          const rankB = tagB ? (tagOrder.get(tagB) ?? unknownTagRank) : untaggedRank;
+
+          if (rankA !== rankB) return rankA - rankB;
+          if (tagA !== tagB) return tagA.localeCompare(tagB, 'ko');
+          return indexA - indexB;
+        })
+        .map(({ task }) => task);
+
+      let dumpIndex = 0;
+      return currentTasks.map((task) => (
+        task.quadrant === 'sidebar' ? sortedDump[dumpIndex++] : task
+      ));
+    });
+    showImportNotice({ type: 'success', message: '브레인 덤프를 태그순으로 정렬했습니다.' });
   };
 
   const updateTaskTime = async (id) => {
@@ -970,6 +1039,25 @@ function App() {
       });
     }
 
+    const sentTaskIds = todayTasks.map((task) => task.id);
+    if (!isMatrixPreview) {
+      const { error } = await supabase
+        .from('matrix_tasks')
+        .delete()
+        .in('id', sentTaskIds)
+        .eq('user_id', session.user.id);
+
+      if (error) {
+        console.error('Matrix task handoff cleanup failed:', error);
+        showImportNotice({ type: 'error', message: '보낸 작업을 정리하지 못해 전송을 중단했습니다.' });
+        setIsSending(false);
+        return;
+      }
+    }
+
+    setTasks((currentTasks) => currentTasks.filter((task) => !sentTaskIds.includes(task.id)));
+    setSelectedTaskId((currentId) => (sentTaskIds.includes(currentId) ? null : currentId));
+
     const textToCopy = todayTasks.map((task) => {
       const duration = formatTime(task.timeEstimate);
       const tags = task.tags.map((tag) => `#${tag}`).join(' ');
@@ -990,7 +1078,7 @@ function App() {
   if (!session) {
     return (
       <>
-        <SuiteBackButton href={returnUrl} />
+        <SuiteBackButton href={suiteReturnUrl} />
         <Auth />
       </>
     );
@@ -998,7 +1086,7 @@ function App() {
 
   return (
     <>
-      <SuiteBackButton href={returnUrl} />
+      <SuiteBackButton href={suiteReturnUrl} />
       <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="matrix-shell" style={{ background: 'var(--bg-color)', display: 'flex', justifyContent: 'center', height: '100vh' }}>
           <div className="matrix-workspace" style={{ display: 'flex', width: '100%', maxWidth: '1760px', padding: '24px', gap: '24px' }}>
@@ -1006,11 +1094,13 @@ function App() {
           <div className="matrix-sidebar" style={{ display: 'flex', flexDirection: 'column', width: 'clamp(660px, 47vw, 820px)', flex: '0 1 clamp(660px, 47vw, 820px)', minWidth: '660px' }}>
           {/* Header */}
           <div className="matrix-app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h1 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-              <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'var(--accent-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                <span style={{ fontSize: '14px' }}>Z</span>
-              </div>
-              ZeroMatrix
+            <div className="matrix-brand-row">
+              <h1 className="matrix-brand-title" style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                <div className="matrix-brand-mark" style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'var(--accent-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                  <span style={{ fontSize: '14px' }}>Z</span>
+                </div>
+                <span>ZeroMatrix</span>
+              </h1>
               <button
                 type="button"
                 className="matrix-guide-trigger"
@@ -1020,7 +1110,7 @@ function App() {
                 <HelpCircle size={14} />
                 <span>사용법</span>
               </button>
-            </h1>
+            </div>
             <div className="matrix-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div className="matrix-account-pill matrix-header-account" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
                 <div className="matrix-account-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success-color)' }} />
@@ -1129,7 +1219,16 @@ function App() {
                   <strong>Brain Dump</strong>
                   <span>{dumpCount}개</span>
                 </div>
-                <span className="matrix-list-filter-lines" aria-hidden="true" />
+                <button
+                  type="button"
+                  className="matrix-list-sort-button"
+                  onClick={sortBrainDumpByTag}
+                  disabled={dumpCount < 2}
+                  title="태그별 정렬"
+                  aria-label="브레인 덤프 태그별 정렬"
+                >
+                  <ListFilter size={16} />
+                </button>
               </div>
               <Droppable
                 droppableId="sidebar"
@@ -1184,7 +1283,7 @@ function App() {
             {selectedTask && (
               <div className="mobile-selected-panel">
                 <div className="mobile-selected-copy">
-                  <span>선택됨</span>
+                  <span>옮길 곳 선택</span>
                   <strong>{selectedTask.content}</strong>
                 </div>
                 <div className="mobile-target-grid">
@@ -1213,7 +1312,21 @@ function App() {
                   <p>{mobileSection.mobileTitle}</p>
                   <h2>{mobileSection.title}</h2>
                 </div>
-                <span>{mobileTasks.length}</span>
+                <div className="mobile-section-actions">
+                  {mobileSection.id === 'sidebar' && (
+                    <button
+                      type="button"
+                      className="mobile-dump-sort-button"
+                      onClick={sortBrainDumpByTag}
+                      disabled={dumpCount < 2}
+                      title="태그별 정렬"
+                    >
+                      <ListFilter size={14} />
+                      <span>태그순</span>
+                    </button>
+                  )}
+                  <span className="mobile-section-count">{mobileTasks.length}</span>
+                </div>
               </div>
 
               <div className="mobile-task-list">
@@ -1231,9 +1344,11 @@ function App() {
                           className="mobile-task-select"
                           onClick={() => setSelectedTaskId(isSelected ? null : task.id)}
                         >
-                          <span className="mobile-task-title">
-                            {task.content}
-                            {task.notes && <FileText size={12} />}
+                          <span className="mobile-task-main">
+                            <span className="mobile-task-title">
+                              {task.content}
+                              {task.notes && <FileText size={12} />}
+                            </span>
                           </span>
                           {(taskMinutes > 0 || (task.tags && task.tags.length > 0)) && (
                             <span className="mobile-task-meta">
@@ -1247,6 +1362,14 @@ function App() {
                           )}
                         </button>
                         <div className="mobile-task-actions">
+                          <button
+                            type="button"
+                            className="mobile-task-move-button"
+                            onClick={() => setSelectedTaskId(task.id)}
+                            aria-label={`${task.content} 옮기기`}
+                          >
+                            <ArrowRight size={13} /> 이동
+                          </button>
                           <button type="button" onClick={() => updateTaskTime(task.id)}>
                             <Clock size={13} /> {formatTime(taskMinutes) || '시간'}
                           </button>

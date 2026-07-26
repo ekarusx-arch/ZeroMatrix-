@@ -286,6 +286,23 @@ body {
   letter-spacing: 0;
 }
 
+.matrix-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.matrix-brand-title {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.matrix-brand-mark {
+  flex: 0 0 auto;
+}
+
 .matrix-guide-trigger {
   min-height: 28px;
   display: inline-flex;
@@ -585,32 +602,36 @@ body {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-color) 10%, var(--border-color));
 }
 
-.matrix-list-filter-lines {
-  width: 16px;
-  height: 16px;
-  position: relative;
-  opacity: 0.58;
+.matrix-list-sort-button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
 }
 
-.matrix-list-filter-lines::before,
-.matrix-list-filter-lines::after {
-  content: "";
-  position: absolute;
-  right: 1px;
-  height: 1.5px;
-  border-radius: 999px;
-  background: var(--text-secondary);
+.matrix-list-sort-button:hover:not(:disabled) {
+  color: var(--accent-color);
+  background: color-mix(in srgb, var(--accent-color) 8%, var(--card-bg));
+  border-color: color-mix(in srgb, var(--accent-color) 18%, var(--border-color));
 }
 
-.matrix-list-filter-lines::before {
-  top: 4px;
-  width: 13px;
-  box-shadow: -3px 5px 0 var(--text-secondary);
+.matrix-list-sort-button:focus-visible,
+.mobile-dump-sort-button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
 }
 
-.matrix-list-filter-lines::after {
-  top: 14px;
-  width: 6px;
+.matrix-list-sort-button:disabled,
+.mobile-dump-sort-button:disabled {
+  cursor: default;
+  opacity: 0.36;
 }
 
 .matrix-input-panel h2 {
@@ -991,6 +1012,9 @@ body {
   .matrix-toolbar {
     align-items: stretch !important;
     flex-direction: column;
+    height: auto !important;
+    gap: 10px;
+    margin-bottom: 14px !important;
   }
 
   .matrix-toolbar-summary {
@@ -1008,8 +1032,19 @@ body {
 }
 
 @media (max-width: 1320px) and (min-width: 769px) {
+  .matrix-shell {
+    height: auto !important;
+    min-height: 100dvh;
+    align-items: flex-start !important;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
   .matrix-workspace {
     flex-direction: column;
+    min-height: 100dvh;
+    height: auto !important;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom)) !important;
   }
 
   .matrix-sidebar {
@@ -1019,7 +1054,7 @@ body {
   }
 
   .matrix-main {
-    min-height: 760px;
+    min-height: clamp(580px, calc(100dvh - 188px), 720px);
   }
 
   .matrix-dump-layout {
@@ -1028,7 +1063,7 @@ body {
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1023px), (hover: none) and (pointer: coarse) and (min-width: 769px) {
   .suite-back-button {
     top: calc(env(safe-area-inset-top, 0px) + 10px);
     left: calc(env(safe-area-inset-left, 0px) + 10px);
@@ -1061,6 +1096,16 @@ body {
   .matrix-app-header {
     align-items: flex-start !important;
     gap: 12px;
+  }
+
+  .matrix-brand-row {
+    width: 100%;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .matrix-brand-title {
+    flex: 1 1 auto;
   }
 
   .matrix-header-actions {
@@ -1285,19 +1330,40 @@ body {
     line-height: 1.25;
   }
 
-  .mobile-section-heading > span {
-    min-width: 32px;
-    height: 32px;
-    border-radius: 999px;
+.mobile-section-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobile-section-count {
+  min-width: 32px;
+  height: 32px;
+  border-radius: 999px;
     background: var(--card-bg);
     color: var(--section-color);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     font-size: 0.85rem;
-    font-weight: 900;
-    border: 1px solid color-mix(in srgb, var(--section-color) 28%, var(--border-color));
-  }
+  font-weight: 900;
+  border: 1px solid color-mix(in srgb, var(--section-color) 28%, var(--border-color));
+}
+
+.mobile-dump-sort-button {
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--section-color) 24%, var(--border-color));
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--section-color);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  cursor: pointer;
+}
 
   .mobile-task-list {
     display: flex;
@@ -1334,10 +1400,22 @@ body {
   .mobile-task-select {
     width: 100%;
     min-height: 58px;
+    border: 0;
+    outline: none;
     padding: 12px;
     background: transparent;
     color: var(--text-color);
     text-align: left;
+  }
+
+  .mobile-task-select:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--section-color) 38%, transparent);
+    outline-offset: -3px;
+  }
+
+  .mobile-task-main {
+    display: block;
+    min-width: 0;
   }
 
   .mobile-task-title {
@@ -1460,14 +1538,36 @@ body {
     padding: 10px;
   }
 
-  .matrix-app-header h1 {
-    width: 100%;
-    flex-wrap: wrap;
+  .matrix-brand-row {
+    align-items: center;
+  }
+
+  .matrix-app-header h1,
+  .matrix-brand-title {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .matrix-brand-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap !important;
+  }
+
+  .matrix-brand-title span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .matrix-guide-trigger {
-    min-height: 30px;
-    padding: 0 10px;
+    min-width: 0;
+    min-height: 36px;
+    flex: 0 0 auto;
+    padding: 0 11px;
   }
 
   .matrix-mobile-tools {
@@ -1592,12 +1692,13 @@ body {
 
   .mobile-task-list {
     gap: 10px;
-    padding: 12px;
+    padding: 10px;
   }
 
   .mobile-task-card {
     position: relative;
-    border-radius: var(--radius-lg);
+    border-color: color-mix(in srgb, var(--section-color) 10%, var(--border-color));
+    border-radius: 12px;
     background: var(--card-bg);
     box-shadow: none;
   }
@@ -1605,10 +1706,10 @@ body {
   .mobile-task-card::before {
     content: "";
     position: absolute;
-    inset: 12px auto 12px 0;
-    width: 3px;
+    inset: 14px auto 14px 0;
+    width: 1px;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--section-color) 55%, var(--border-color));
+    background: color-mix(in srgb, var(--section-color) 36%, var(--border-color));
   }
 
   .mobile-task-card.is-selected {
@@ -1616,36 +1717,114 @@ body {
   }
 
   .mobile-task-select {
-    padding: 14px 14px 12px 18px;
+    min-height: 0;
+    padding: 13px 14px 10px 16px;
   }
 
   .mobile-task-title {
-    font-size: 0.94rem;
-    font-weight: 850;
+    font-size: 0.82rem;
+    font-weight: 560;
+    line-height: 1.5;
     word-break: keep-all;
   }
 
+  .mobile-task-title svg {
+    flex: 0 0 auto;
+  }
+
+  .mobile-task-meta {
+    gap: 5px;
+    margin-top: 9px;
+  }
+
   .mobile-task-meta span {
-    border: 1px solid var(--border-color);
-    background: var(--soft-surface);
+    max-width: 100%;
+    border-color: transparent;
+    background: color-mix(in srgb, var(--soft-surface) 76%, transparent);
+    color: var(--text-secondary);
+    font-size: 0.66rem;
+    font-weight: 580;
+    line-height: 1.25;
+    padding: 3px 7px;
+  }
+
+  .mobile-task-meta .is-tag {
+    background: color-mix(in srgb, var(--tag-color) 9%, var(--card-bg));
+    color: color-mix(in srgb, var(--tag-color) 72%, var(--text-color));
+  }
+
+  .mobile-task-meta .matrix-task-tag-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--tag-color);
+    flex: 0 0 auto;
   }
 
   .mobile-task-actions {
-    display: flex;
-    gap: 7px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
     border-top: none;
-    padding: 0 12px 12px 18px;
+    padding: 0 12px 12px 16px;
   }
 
   .mobile-task-actions button {
-    flex: 1;
-    min-height: 36px;
-    border-radius: var(--radius-md);
-    background: var(--soft-surface);
+    min-width: 0;
+    min-height: 32px;
+    border: 1px solid color-mix(in srgb, var(--section-color) 10%, var(--border-color));
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--soft-surface) 70%, transparent);
+    color: var(--text-secondary);
+    font-size: 0.67rem;
+    font-weight: 580;
+    padding: 0 6px;
+    white-space: nowrap;
+  }
+
+  .mobile-task-actions .mobile-task-move-button {
+    background: color-mix(in srgb, var(--section-color) 9%, var(--card-bg));
+    color: var(--section-color);
+    font-weight: 640;
   }
 
   .mobile-task-actions button + button {
     border-left: none;
+  }
+
+  .matrix-header-actions {
+    display: grid !important;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) minmax(124px, 132px);
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+
+  .matrix-header-account,
+  .matrix-header-theme-select {
+    box-sizing: border-box;
+    width: 100% !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    border-radius: 10px !important;
+  }
+
+  .matrix-header-account {
+    justify-content: flex-start;
+    padding: 0 10px !important;
+    gap: 7px !important;
+  }
+
+  .matrix-header-theme-select {
+    min-width: 0 !important;
+    padding: 0 30px 0 10px !important;
+  }
+
+  .matrix-account-email {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
