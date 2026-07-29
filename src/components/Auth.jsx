@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-export default function Auth() {
+export default function Auth({ errorMessage = '', statusMessage = '' }) {
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -52,6 +52,16 @@ export default function Auth() {
         <p style={{ color: 'var(--text-secondary)', margin: '0 0 20px 0', fontSize: '0.9rem' }}>
           제로슬레이트 계정으로 로그인하세요.
         </p>
+        {statusMessage ? (
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '-8px 0 0 0' }}>
+            {statusMessage}
+          </p>
+        ) : null}
+        {errorMessage ? (
+          <p style={{ fontSize: '0.85rem', color: 'var(--danger-color)', margin: '-8px 0 0 0' }}>
+            {errorMessage}
+          </p>
+        ) : null}
 
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <input

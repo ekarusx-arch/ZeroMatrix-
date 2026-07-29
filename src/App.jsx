@@ -7,7 +7,19 @@ import { TagFilterBar, TagSelectionRow } from './components/TagControls';
 import TimeBudget from './components/TimeBudget';
 import { supabase } from './lib/supabaseClient';
 import { isMatrixPreview, previewSession, previewTagPalette, previewTasks } from './lib/devPreview';
-import { consumeSuiteLogin } from './lib/zeroSlateApi';
+import {
+  consumeSuiteLogin,
+  createMatrixTask,
+  deleteMatrixTask,
+  fetchMatrixBrainDumps,
+  fetchMatrixSettings,
+  fetchMatrixTasks,
+  fetchMatrixTopThree,
+  fetchZeroSlateEntitlements,
+  resolveEntitlementGate,
+  updateMatrixTask,
+  upsertMatrixSettings,
+} from './lib/zeroSlateApi';
 import { getTagColor, mergeTagPalette, normalizeTagPalette, toSlateTagPalette } from './lib/tagPalette';
 import { getNextTimeEstimate } from './lib/timeBudget';
 
@@ -98,6 +110,49 @@ function SuiteBackButton({ href }) {
       <ArrowLeft size={15} />
       ZeroSlate
     </a>
+  );
+}
+
+function unwrapRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.data)) return payload.data;
+  return [];
+}
+
+function unwrapSingle(payload) {
+  if (payload && !Array.isArray(payload)) return payload.data || payload.item || payload;
+  return Array.isArray(payload) ? payload[0] || null : null;
+}
+
+function countTopThreeEntries(payload) {
+  if (typeof payload?.count === 'number') return payload.count;
+  return unwrapRows(payload).length;
+}
+
+function ClosedAccessCard({ badge, title, description, returnUrl, actionLabel = 'ZeroSlate로 돌아가기', onRetry }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: 'var(--bg-color)', padding: '24px' }}>
+      <section className="glass-panel" style={{ width: '100%', maxWidth: '480px', padding: '32px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '16px' }} aria-live="polite">
+        <span style={{ alignSelf: 'center', padding: '6px 12px', borderRadius: '999px', background: 'rgba(59, 130, 246, 0.12)', color: 'var(--accent-color)', fontSize: '0.8rem', fontWeight: 700 }}>
+          {badge}
+        </span>
+        <h1 style={{ margin: 0, fontSize: '1.6rem' }}>{title}</h1>
+        <p style={{ margin: 0, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{description}</p>
+        <a href={returnUrl} style={{ display: 'inline-flex', justifyContent: 'center', alignItems: 'center', padding: '12px 16px', borderRadius: '10px', background: 'var(--accent-color)', color: '#fff', fontWeight: 700, textDecoration: 'none' }}>
+          {actionLabel}
+        </a>
+        {onRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            style={{ border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-color)', borderRadius: '10px', padding: '10px 16px', cursor: 'pointer' }}
+          >
+            다시 시도
+          </button>
+        ) : null}
+      </section>
+    </div>
   );
 }
 
@@ -399,6 +454,10 @@ function TaskCard({ task, provided, snapshot, isClone, removeTask, updateTaskCon
 
 function App() {
   const [session, setSession] = useState(() => isMatrixPreview ? previewSession : null);
+  const [isSessionLoading, setIsSessionLoading] = useState(!isMatrixPreview);
+  const [planLoading, setPlanLoading] = useState(!isMatrixPreview);
+  const [entitlement, setEntitlement] = useState(() => (isMatrixPreview ? { plan: 'pro' } : null));
+  const [entitlementError, setEntitlementError] = useState('');
   const [tasks, setTasks] = useState(() => isMatrixPreview ? previewTasks : []);
   const [newTask, setNewTask] = useState('');
   const [draggingSourceId, setDraggingSourceId] = useState(null);
@@ -432,6 +491,7 @@ function App() {
   const [isImportingBrainDump, setIsImportingBrainDump] = useState(false);
   const [importNotice, setImportNotice] = useState(null);
   const importNoticeTimerRef = useRef(null);
+  const accessToken = session?.access_token || null;
 
   const buildSlateImportUrl = (selectedTasks) => {
     const target = new URL(suiteReturnUrl);
@@ -458,6 +518,10 @@ function App() {
   const slateCandidateCount = tasks.filter(t => t.quadrant === slateSourceId).length;
   const slateReadyCount = Math.min(slateCandidateCount, MAX_SLATE_TASKS);
   const accountLabel = session ? getAccountDisplayName(session.user) : '계정';
+  const entitlementGate = useMemo(() => resolveEntitlementGate(entitlement), [entitlement]);
+  const expiredAtLabel = entitlement?.expiresAt
+    ? new Date(entitlement.expiresAt).toLocaleDateString('ko-KR')
+    : null;
   const quadrantMinutes = useMemo(() => QUADRANTS.reduce((totals, quadrant) => ({
     ...totals,
     [quadrant.id]: tasks
@@ -518,42 +582,46 @@ function App() {
     tagPaletteRef.current = tagPalette;
   }, [tagPalette]);
 
-  const fetchTasks = useCallback(async (userId) => {
-    const { data, error } = await supabase
-      .from('matrix_tasks')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: true });
+  const clearWorkspaceState = useCallback(() => {
+    setTasks([]);
+    tagPaletteRef.current = [];
+    syncedTagPaletteRef.current = [];
+    setTagPalette([]);
+  }, []);
 
-    if (error) {
-      console.error('Error fetching tasks', error);
-      showImportNotice({ type: 'error', message: 'Matrix 작업을 불러오지 못했습니다.' });
-    } else {
-      const formatted = (data || []).map(t => ({
-        ...t,
-        timeEstimate: t.time_estimate
+  const fetchTasks = useCallback(async (token) => {
+    try {
+      const payload = await fetchMatrixTasks(token);
+      const formatted = unwrapRows(payload).map((task) => ({
+        ...task,
+        timeEstimate: task.time_estimate,
       }));
       setTasks(formatted);
+    } catch (error) {
+      console.error('Error fetching tasks', error);
+      showImportNotice({ type: 'error', message: error.message || 'Matrix 작업을 불러오지 못했습니다.' });
     }
   }, [showImportNotice]);
 
-  const fetchTagPalette = useCallback(async (userId) => {
-    const { data, error } = await supabase
-      .from('user_settings')
-      .select('custom_tags')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (error) {
+  const fetchTagPalette = useCallback(async (token) => {
+    try {
+      const payload = await fetchMatrixSettings(token);
+      const nextPalette = normalizeTagPalette(unwrapSingle(payload)?.custom_tags);
+      tagPaletteRef.current = nextPalette;
+      syncedTagPaletteRef.current = nextPalette;
+      setTagPalette(nextPalette);
+    } catch (error) {
       console.warn('ZeroSlate tag palette fetch failed', error);
-      return;
+      showImportNotice({ type: 'error', message: error.message || '태그 색상을 불러오지 못했습니다.' });
     }
+  }, [showImportNotice]);
 
-    const nextPalette = normalizeTagPalette(data?.custom_tags);
-    tagPaletteRef.current = nextPalette;
-    syncedTagPaletteRef.current = nextPalette;
-    setTagPalette(nextPalette);
-  }, []);
+  const hydrateWorkspace = useCallback(async (token) => {
+    await Promise.all([
+      fetchTasks(token),
+      fetchTagPalette(token),
+    ]);
+  }, [fetchTagPalette, fetchTasks]);
 
   useEffect(() => {
     if (isMatrixPreview) return undefined;
@@ -562,6 +630,7 @@ function App() {
     let subscription;
 
     const initializeSession = async () => {
+      setIsSessionLoading(true);
       if (suiteCode) {
         try {
           await consumeSuiteLogin({
@@ -570,32 +639,41 @@ function App() {
             locationHref: window.location.href,
             replaceUrl: (nextUrl) => window.history.replaceState({}, '', nextUrl),
           });
+          if (active) setEntitlementError('');
         } catch (error) {
           console.warn('ZeroSlate Suite 자동 로그인에 실패했습니다:', error);
+          if (active) {
+            setEntitlementError(error.message || 'ZeroSlate SSO 로그인에 실패했습니다. 다시 시도해 주세요.');
+          }
         }
       }
 
-      const { data: { session: nextSession } } = await supabase.auth.getSession();
-      if (!active) return;
-
-      setSession(nextSession);
-      if (nextSession) {
-        fetchTasks(nextSession.user.id);
-        fetchTagPalette(nextSession.user.id);
-      }
-      const authState = supabase.auth.onAuthStateChange((_event, nextSessionState) => {
+      try {
+        const { data: { session: nextSession }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
         if (!active) return;
-        setSession(nextSessionState);
-        if (nextSessionState) {
-          fetchTasks(nextSessionState.user.id);
-          fetchTagPalette(nextSessionState.user.id);
-        } else {
-          setTasks([]);
-          setTagPalette([]);
-        }
-      });
 
-      subscription = authState.data.subscription;
+        setSession(nextSession);
+        const authState = supabase.auth.onAuthStateChange((_event, nextSessionState) => {
+          if (!active) return;
+          setSession(nextSessionState);
+          if (!nextSessionState) {
+            setEntitlement(null);
+            setPlanLoading(false);
+            clearWorkspaceState();
+          }
+        });
+
+        subscription = authState.data.subscription;
+      } catch (error) {
+        console.warn('ZeroMatrix session lookup failed:', error);
+        if (active) {
+          setSession(null);
+          setEntitlementError('로그인 세션을 확인하지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.');
+        }
+      } finally {
+        if (active) setIsSessionLoading(false);
+      }
     };
 
     initializeSession();
@@ -604,7 +682,46 @@ function App() {
       active = false;
       subscription?.unsubscribe();
     };
-  }, [fetchTagPalette, fetchTasks, suiteCode]);
+  }, [clearWorkspaceState, suiteCode]);
+
+  useEffect(() => {
+    if (isMatrixPreview) return undefined;
+    if (!accessToken) {
+      return undefined;
+    }
+
+    let active = true;
+    const verifyEntitlement = async () => {
+      setPlanLoading(true);
+      setEntitlementError('');
+
+      try {
+        const nextEntitlement = await fetchZeroSlateEntitlements(accessToken);
+        if (!active) return;
+        setEntitlement(nextEntitlement);
+        const gate = resolveEntitlementGate(nextEntitlement);
+        if (!gate.allowed) {
+          clearWorkspaceState();
+          return;
+        }
+        await hydrateWorkspace(accessToken);
+      } catch (error) {
+        console.warn('ZeroSlate Pro 권한 확인에 실패했습니다:', error);
+        if (!active) return;
+        setEntitlement(null);
+        clearWorkspaceState();
+        setEntitlementError(error.message || 'ZeroSlate 연결 상태를 확인하지 못했습니다.');
+      } finally {
+        if (active) setPlanLoading(false);
+      }
+    };
+
+    verifyEntitlement();
+
+    return () => {
+      active = false;
+    };
+  }, [accessToken, clearWorkspaceState, hydrateWorkspace]);
 
   useEffect(() => {
     return () => {
@@ -659,13 +776,12 @@ function App() {
     newTasks.splice(insertIndex, 0, draggedTask);
     setTasks(newTasks);
 
-    // Update in Supabase
-    supabase.from('matrix_tasks').update({ quadrant: destination.droppableId }).eq('id', draggedTask.id).then(({error}) => {
-      if (error) {
-        console.error('Error updating quadrant', error);
-        setTasks(previousTasks);
-        showImportNotice({ type: 'error', message: '이동 내용을 저장하지 못해 이전 상태로 되돌렸습니다.' });
-      }
+    if (isMatrixPreview) return;
+
+    updateMatrixTask(accessToken, draggedTask.id, { quadrant: destination.droppableId }).catch((error) => {
+      console.error('Error updating quadrant', error);
+      setTasks(previousTasks);
+        showImportNotice({ type: 'error', message: error.message || '이동 내용을 저장하지 못해 이전 상태로 되돌렸습니다.' });
     });
 
     if (destination.droppableId === 'q4' && source.droppableId !== 'q4') {
@@ -675,7 +791,7 @@ function App() {
   };
 
   const persistTagPalette = async (nextPalette) => {
-    if (!session?.user?.id) return false;
+    if (!accessToken) return false;
     const normalized = normalizeTagPalette(nextPalette);
     tagPaletteRef.current = normalized;
     setTagPalette(normalized);
@@ -683,27 +799,21 @@ function App() {
     if (isMatrixPreview) return true;
 
     const syncOperation = tagSyncQueueRef.current.then(() => (
-      supabase.from('user_settings').upsert({
-        user_id: session.user.id,
+      upsertMatrixSettings(accessToken, {
         custom_tags: toSlateTagPalette(normalized),
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' })
+      })
     ));
     tagSyncQueueRef.current = syncOperation.catch(() => {});
-    let error;
     try {
-      ({ error } = await syncOperation);
+      await syncOperation;
     } catch (syncError) {
-      error = syncError;
-    }
-
-    if (error) {
-      console.error('ZeroSlate tag palette sync failed', error);
+      console.error('ZeroSlate tag palette sync failed', syncError);
       if (tagPaletteRef.current === normalized) {
         tagPaletteRef.current = syncedTagPaletteRef.current;
         setTagPalette(syncedTagPaletteRef.current);
       }
-      showImportNotice({ type: 'error', message: '태그 색상을 ZeroSlate와 동기화하지 못했습니다.' });
+      showImportNotice({ type: 'error', message: syncError.message || '태그 색상을 ZeroSlate와 동기화하지 못했습니다.' });
       return false;
     }
     syncedTagPaletteRef.current = normalized;
@@ -748,11 +858,12 @@ function App() {
 
     if (isMatrixPreview) return;
 
-    const { error } = await supabase.from('matrix_tasks').update({ tags: nextTags }).eq('id', id);
-    if (error) {
+    try {
+      await updateMatrixTask(accessToken, id, { tags: nextTags });
+    } catch (error) {
       console.error('Error updating task tags', error);
       setTasks(previousTasks);
-      showImportNotice({ type: 'error', message: '태그 변경을 저장하지 못해 이전 상태로 되돌렸습니다.' });
+      showImportNotice({ type: 'error', message: error.message || '태그 변경을 저장하지 못해 이전 상태로 되돌렸습니다.' });
     }
   };
 
@@ -803,11 +914,12 @@ function App() {
 
     if (isMatrixPreview) return;
 
-    const { error } = await supabase.from('matrix_tasks').update({ time_estimate: next }).eq('id', id);
-    if (error) {
+    try {
+      await updateMatrixTask(accessToken, id, { time_estimate: next });
+    } catch (error) {
       console.error('Error updating time estimate', error);
       setTasks(previousTasks);
-      showImportNotice({ type: 'error', message: '예상 시간을 저장하지 못했습니다.' });
+      showImportNotice({ type: 'error', message: error.message || '예상 시간을 저장하지 못했습니다.' });
     }
   };
 
@@ -832,7 +944,6 @@ function App() {
     const parsed = parseTaskInput(content);
 
     const newTaskObj = {
-      user_id: session.user.id,
       content: parsed.content,
       quadrant: 'sidebar',
       time_estimate: parsed.timeEstimate,
@@ -840,17 +951,18 @@ function App() {
       notes: ''
     };
 
-    const { data, error } = await supabase.from('matrix_tasks').insert(newTaskObj).select().single();
-
-    if (!error && data) {
+    try {
+      const payload = await createMatrixTask(accessToken, newTaskObj);
+      const data = unwrapSingle(payload);
+      if (!data) throw new Error('ZeroSlate Matrix가 새 작업을 반환하지 않았습니다.');
       setTasks(currentTasks => [...currentTasks, { ...data, timeEstimate: data.time_estimate }]);
       await ensureTagsInPalette(parsed.tags);
       setNewTask('');
       setSelectedTime(null);
       setSelectedTags([]);
-    } else {
+    } catch (error) {
       console.error('Error adding task', error);
-      showImportNotice({ type: 'error', message: '새 작업을 저장하지 못했습니다.' });
+      showImportNotice({ type: 'error', message: error.message || '새 작업을 저장하지 못했습니다.' });
     }
   };
 
@@ -858,22 +970,24 @@ function App() {
     const previousTasks = tasks;
     setSelectedTaskId(current => current === id ? null : current);
     setTasks(tasks.filter(t => t.id !== id));
-    const { error } = await supabase.from('matrix_tasks').delete().eq('id', id);
-    if (error) {
+    try {
+      await deleteMatrixTask(accessToken, id);
+    } catch (error) {
       console.error('Error deleting task', error);
       setTasks(previousTasks);
-      showImportNotice({ type: 'error', message: '작업을 삭제하지 못해 복구했습니다.' });
+      showImportNotice({ type: 'error', message: error.message || '작업을 삭제하지 못해 복구했습니다.' });
     }
   };
 
   const updateTaskNote = async (id, newNote) => {
     const previousTasks = tasks;
     setTasks(tasks.map(t => t.id === id ? { ...t, notes: newNote } : t));
-    const { error } = await supabase.from('matrix_tasks').update({ notes: newNote }).eq('id', id);
-    if (error) {
+    try {
+      await updateMatrixTask(accessToken, id, { notes: newNote });
+    } catch (error) {
       console.error('Error updating note', error);
       setTasks(previousTasks);
-      showImportNotice({ type: 'error', message: '메모를 저장하지 못해 이전 내용으로 되돌렸습니다.' });
+      showImportNotice({ type: 'error', message: error.message || '메모를 저장하지 못해 이전 내용으로 되돌렸습니다.' });
     }
   };
 
@@ -883,31 +997,28 @@ function App() {
 
     if (isMatrixPreview) return;
 
-    const { error } = await supabase.from('matrix_tasks').update({ content: newContent }).eq('id', id);
-    if (error) {
+    try {
+      await updateMatrixTask(accessToken, id, { content: newContent });
+    } catch (error) {
       console.error('Error updating content', error);
       setTasks(previousTasks);
-      showImportNotice({ type: 'error', message: '작업 내용을 저장하지 못해 이전 내용으로 되돌렸습니다.' });
+      showImportNotice({ type: 'error', message: error.message || '작업 내용을 저장하지 못해 이전 내용으로 되돌렸습니다.' });
     }
   };
 
   const handleImportBrainDump = async () => {
-    if (!session?.user?.id || isImportingBrainDump) return;
+    if (!accessToken || isImportingBrainDump) return;
 
     setIsImportingBrainDump(true);
     clearImportNotice();
 
-    const { data, error } = await supabase
-      .from('brain_dumps')
-      .select('id,content,is_completed,created_at,order_index,date')
-      .eq('user_id', session.user.id)
-      .eq('date', selectedDate)
-      .eq('is_completed', false)
-      .order('created_at', { ascending: true });
-
-    if (error) {
+    let data;
+    try {
+      const payload = await fetchMatrixBrainDumps(accessToken, selectedDate);
+      data = unwrapRows(payload);
+    } catch (error) {
       console.error('ZeroSlate brain dump import failed:', error);
-      showImportNotice({ type: 'error', message: 'ZeroSlate 브레인 덤프를 불러오지 못했습니다.' });
+      showImportNotice({ type: 'error', message: error.message || 'ZeroSlate 브레인 덤프를 불러오지 못했습니다.' });
       setIsImportingBrainDump(false);
       return;
     }
@@ -927,7 +1038,6 @@ function App() {
       if (!key || existingContents.has(key)) return;
       existingContents.add(key);
       inserts.push({
-        user_id: session.user.id,
         content: parsed.content,
         quadrant: 'sidebar',
         time_estimate: parsed.timeEstimate,
@@ -942,19 +1052,20 @@ function App() {
       return;
     }
 
-    const { data: inserted, error: insertError } = await supabase
-      .from('matrix_tasks')
-      .insert(inserts)
-      .select();
-
-    if (insertError) {
+    let inserted;
+    try {
+      inserted = await Promise.all(inserts.map((task) => createMatrixTask(accessToken, task)));
+    } catch (insertError) {
       console.error('Matrix task import insert failed:', insertError);
-      showImportNotice({ type: 'error', message: 'Matrix 덤프 섹션에 추가하지 못했습니다.' });
+      showImportNotice({ type: 'error', message: insertError.message || 'Matrix 덤프 섹션에 추가하지 못했습니다.' });
       setIsImportingBrainDump(false);
       return;
     }
 
-    const formatted = (inserted || []).map(t => ({ ...t, timeEstimate: t.time_estimate }));
+    const formatted = inserted
+      .map((payload) => unwrapSingle(payload))
+      .filter(Boolean)
+      .map((task) => ({ ...task, timeEstimate: task.time_estimate }));
     setTasks(currentTasks => [...currentTasks, ...formatted]);
     await ensureTagsInPalette(formatted.flatMap((task) => task.tags || []));
     setMobileSectionId('sidebar');
@@ -971,16 +1082,15 @@ function App() {
     setSelectedTaskId(taskId);
     setMobileSectionId(targetSectionId);
 
-    const { error } = await supabase
-      .from('matrix_tasks')
-      .update({ quadrant: targetSectionId })
-      .eq('id', taskId);
+    if (isMatrixPreview) return;
 
-    if (error) {
+    try {
+      await updateMatrixTask(accessToken, taskId, { quadrant: targetSectionId });
+    } catch (error) {
       console.error('Error updating quadrant', error);
       setTasks(currentTasks => currentTasks.map(t => t.id === taskId ? { ...t, quadrant: previousSectionId } : t));
       setMobileSectionId(previousSectionId);
-      showImportNotice({ type: 'error', message: '이동 내용을 저장하지 못해 이전 섹션으로 되돌렸습니다.' });
+      showImportNotice({ type: 'error', message: error.message || '이동 내용을 저장하지 못해 이전 섹션으로 되돌렸습니다.' });
       return;
     }
 
@@ -1011,21 +1121,18 @@ function App() {
 
     setIsSending(true);
 
-    if (!isMatrixPreview && session?.user?.id) {
-      const { count, error } = await supabase
-        .from('top_three')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', session.user.id)
-        .eq('date', selectedDate);
-
-      if (error) {
+    if (!isMatrixPreview && accessToken) {
+      let topThreePayload;
+      try {
+        topThreePayload = await fetchMatrixTopThree(accessToken, selectedDate);
+      } catch (error) {
         console.error('ZeroSlate Top 3 check failed:', error);
-        showImportNotice({ type: 'error', message: 'ZeroSlate Top 3 상태를 확인하지 못했습니다.' });
+        showImportNotice({ type: 'error', message: error.message || 'ZeroSlate Top 3 상태를 확인하지 못했습니다.' });
         setIsSending(false);
         return;
       }
 
-      if ((count || 0) > 0) {
+      if (countTopThreeEntries(topThreePayload) > 0) {
         showImportNotice({ type: 'error', message: 'ZeroSlate Top 3에 기존 항목이 있어 보내기를 중단했습니다.' });
         setIsSending(false);
         return;
@@ -1041,15 +1148,11 @@ function App() {
 
     const sentTaskIds = todayTasks.map((task) => task.id);
     if (!isMatrixPreview) {
-      const { error } = await supabase
-        .from('matrix_tasks')
-        .delete()
-        .in('id', sentTaskIds)
-        .eq('user_id', session.user.id);
-
-      if (error) {
+      try {
+        await Promise.all(sentTaskIds.map((id) => deleteMatrixTask(accessToken, id)));
+      } catch (error) {
         console.error('Matrix task handoff cleanup failed:', error);
-        showImportNotice({ type: 'error', message: '보낸 작업을 정리하지 못해 전송을 중단했습니다.' });
+        showImportNotice({ type: 'error', message: error.message || '보낸 작업을 정리하지 못해 전송을 중단했습니다.' });
         setIsSending(false);
         return;
       }
@@ -1075,12 +1178,64 @@ function App() {
     }, slateCandidates.length > MAX_SLATE_TASKS ? 1200 : 800);
   };
 
+  if (isSessionLoading) {
+    return (
+      <ClosedAccessCard
+        badge="ZeroSlate"
+        title="로그인 상태를 확인하는 중입니다"
+        description="ZeroMatrix가 ZeroSlate 계정 세션을 확인하고 있습니다."
+        returnUrl={suiteReturnUrl}
+      />
+    );
+  }
+
   if (!session) {
     return (
       <>
         <SuiteBackButton href={suiteReturnUrl} />
-        <Auth />
+        <Auth
+          statusMessage={suiteCode ? 'ZeroSlate SSO를 확인한 뒤 계정 로그인을 이어갈 수 있습니다.' : ''}
+          errorMessage={entitlementError}
+        />
       </>
+    );
+  }
+
+  if (planLoading) {
+    return (
+      <ClosedAccessCard
+        badge="ZeroSlate Pro"
+        title="Pro 권한을 확인하는 중입니다"
+        description="ZeroMatrix가 ZeroSlate 구독 상태와 Matrix API 접근 권한을 확인하고 있습니다."
+        returnUrl={suiteReturnUrl}
+      />
+    );
+  }
+
+  if (entitlementError) {
+    return (
+      <ClosedAccessCard
+        badge="연결 오류"
+        title="ZeroSlate 연결을 확인하지 못했습니다"
+        description={entitlementError}
+        returnUrl={suiteReturnUrl}
+        onRetry={() => window.location.reload()}
+      />
+    );
+  }
+
+  if (!entitlementGate.allowed) {
+    const description = entitlementGate.reason === 'expired'
+      ? `ZeroSlate Pro 구독이 만료되어 ZeroMatrix를 열 수 없습니다.${expiredAtLabel ? ` 만료일: ${expiredAtLabel}.` : ''}`
+      : 'ZeroMatrix는 ZeroSlate Pro 전용입니다. Pro 권한이 있는 같은 계정으로 다시 열어주세요.';
+
+    return (
+      <ClosedAccessCard
+        badge={entitlementGate.reason === 'expired' ? 'Pro 만료' : 'Pro only'}
+        title={entitlementGate.reason === 'expired' ? 'ZeroSlate Pro 갱신이 필요합니다' : 'ZeroMatrix는 ZeroSlate Pro 전용입니다'}
+        description={description}
+        returnUrl={suiteReturnUrl}
+      />
     );
   }
 
