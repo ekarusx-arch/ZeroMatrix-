@@ -643,7 +643,11 @@ function App() {
         } catch (error) {
           console.warn('ZeroSlate Suite 자동 로그인에 실패했습니다:', error);
           if (active) {
-            setEntitlementError(error.message || 'ZeroSlate SSO 로그인에 실패했습니다. 다시 시도해 주세요.');
+            setEntitlementError(
+              error.message === 'invalid_or_expired_suite_token'
+                ? '연결 코드가 만료되었습니다. ZeroSlate의 Suite에서 Matrix를 다시 열어주세요.'
+                : error.message || 'ZeroSlate SSO 로그인에 실패했습니다. 다시 시도해 주세요.',
+            );
           }
         }
       }
